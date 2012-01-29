@@ -1,0 +1,7 @@
+*.exe
+*.o
+*.idb
+*.id0
+*.id1
+*.nam
+*.pyc
