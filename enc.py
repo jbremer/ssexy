@@ -35,13 +35,13 @@ class Enc:
 	
 	# construct a 16byte xmm value
 	def _m128(self, val):
-		label = 'm128_%d' % self._label
-		self.lines.append('jmp m128_%d_end' % self._label)
+		label = 'm128_%d' % Enc._label
+		self.lines.append('jmp m128_%d_end' % Enc._label)
 		self.lines.append('.align 16')
-		self.lines.append('m128_%d:' % self._label)
+		self.lines.append('m128_%d:' % Enc._label)
 		self.lines.append('.long 0x%x, 0x%x, 0x%x, 0x%x' % tuple(val))
-		self.lines.append('m128_%d_end:' % self._label)
-		self._label += 1
+		self.lines.append('m128_%d_end:' % Enc._label)
+		Enc._label += 1
 		return label
 	
 	# construct a 16byte xmm value from 4 dwords
