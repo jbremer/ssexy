@@ -3,7 +3,7 @@ from assemble import assemble
 from distorm3 import OPERAND_REGISTER
 
 class Enc:
-	_label = 0
+	_labels = {}
 	
 	def __init__(self, dis):
 		self.name = dis.mnemonic.lower()
@@ -35,14 +35,14 @@ class Enc:
 	
 	# construct a 16byte xmm value
 	def _m128(self, val):
-		label = 'm128_%d' % Enc._label
-		self.lines.append('jmp m128_%d_end' % Enc._label)
-		self.lines.append('.align 16')
-		self.lines.append('m128_%d:' % Enc._label)
-		self.lines.append('.long 0x%x, 0x%x, 0x%x, 0x%x' % tuple(val))
-		self.lines.append('m128_%d_end:' % Enc._label)
-		Enc._label += 1
-		return label
+		if str(val) not in Enc._labels:
+			self.lines.append('jmp m128_%d_end' % len(Enc._labels))
+			self.lines.append('.align 16')
+			self.lines.append('m128_%d:' % len(Enc._labels))
+			self.lines.append('.long 0x%x, 0x%x, 0x%x, 0x%x' % tuple(val))
+			self.lines.append('m128_%d_end:' % len(Enc._labels))
+			Enc._labels[str(val)] = 'm128_%d' % len(Enc._labels)
+		return Enc._labels[str(val)]
 	
 	# construct a 16byte xmm value from 4 dwords
 	def _m128_flag4(self, index, yes, no):
