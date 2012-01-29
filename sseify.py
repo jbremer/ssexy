@@ -14,4 +14,4 @@ if __name__ == '__main__':
 		lines += enc.Enc(dis).encode()
 	
 	# print the instructions
-	print '\r\n'.join(lines)
+	print '"' + '\\n"\r\n"'.join(lines) + '\\n"'

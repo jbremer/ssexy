@@ -2,7 +2,6 @@
 cat > testing.cpp <<EOL
 #include <stdio.h>
 #include <windows.h>
-#include "jbade/jbade.h"
 
 DWORD WINAPI MmxThread(LPVOID)
 {
