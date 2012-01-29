@@ -1,6 +1,6 @@
 import sys, binascii
 from assemble import assemble
-from distorm3 import OPERAND_REGISTER
+from distorm3 import OPERAND_REGISTER, OPERAND_IMMEDIATE, OPERAND_MEMORY, OPERAND_ABSOLUTE_ADDRESS
 
 class Enc:
 	_labels = {}
