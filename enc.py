@@ -7,7 +7,6 @@ class Enc:
 	_ff_flag = {8: 0xff, 16: 0xffff, 32: 0xffffffff}
 	
 	def __init__(self, dis):
-		self.name = dis.mnemonic.lower()
 		self.dis = dis
 		self.reg_index1 = None
 		self.reg_index2 = None
@@ -30,8 +29,9 @@ class Enc:
 				self.xmm_reg2 = 'xmm%d' % (6 + self.reg_index2 / 4)
 	
 	def encode(self):
-		if self.name == 'xor': self._encode_xor()
-		if self.name == 'or': self._encode_or()
+		func = getattr(self, '_encode_' + self.dis.mnemonic.lower(), None)
+		if not func: raise Exception('Cannot encode %s' % self.dis.mnemonic.lower())
+		func()
 		return self.lines
 	
 	# construct a 16byte xmm value
