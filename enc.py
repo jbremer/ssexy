@@ -50,19 +50,19 @@ class Enc:
 		return Enc._labels[str(val)]
 	
 	# construct a 16byte xmm value from 4 dwords
-	def _m128_flag4(self, index, yes, no):
+	def _m128_flag4(self, index, yes, no=0):
 		val = [no for i in range(4)]
 		val[index] = yes
 		return self._m128(val)
 	
 	# construct a 16byte xmm value from 8 words
-	def _m128_flag8(self, index, yes, no):
+	def _m128_flag8(self, index, yes, no=0):
 		val = [no for i in range(8)]
 		val[index * 2] = yes
 		return self._m128([(val[i] + (val[i+1] << 16)) for i in xrange(0, 8, 2)])
 	
 	# construct a 16byte xmm value from 16 bytes
-	def _m128_flag16(self, index, yes, no):
+	def _m128_flag16(self, index, yes, no=0):
 		val = [no for i in range(16)]
 		val[index * 4] = yes
 		return self._m128([reduce(lambda x, y: x * 256 + y, val[i+4:i:-1]) for i in xrange(0, 16, 4)])
