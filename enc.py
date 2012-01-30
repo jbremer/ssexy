@@ -20,19 +20,23 @@ class Enc:
 			if dis.operands[0].type == OPERAND_REGISTER:
 				self.reg_index1 = dis.operands[0].index & 7
 				self.xmm_index1 = dis.operands[0].index & 3
-				self.xmm_reg1 = 'xmm%d' % (6 + self.reg_index1 / 4)
+				self.xmm_reg1 = self._xmm_gpr_index(self.reg_index1)
 		
 		if len(dis.operands) > 1:
 			if dis.operands[1].type == OPERAND_REGISTER:
 				self.reg_index2 = dis.operands[1].index & 7
 				self.xmm_index2 = dis.operands[1].index & 3
-				self.xmm_reg2 = 'xmm%d' % (6 + self.reg_index2 / 4)
+				self.xmm_reg2 = self._xmm_gpr_index(self.reg_index2)
 	
 	def encode(self):
 		func = getattr(self, '_encode_' + self.dis.mnemonic.lower(), None)
 		if not func: raise Exception('Cannot encode %s' % self.dis.mnemonic.lower())
 		func()
 		return self.lines
+	
+	# find register for gpr
+	def _xmm_gpr_index(self, gpr_index):
+		return 'xmm%d' % (6 + gpr_index / 4)
 	
 	# construct a 16byte xmm value
 	def _m128(self, val):
