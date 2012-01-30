@@ -4,6 +4,7 @@ from distorm3 import OPERAND_REGISTER, OPERAND_IMMEDIATE, OPERAND_MEMORY, OPERAN
 
 class Enc:
 	_labels = {}
+	_ff_flag = {8: 0xff, 16: 0xffff, 32: 0xffffffff}
 	
 	def __init__(self, dis):
 		self.name = dis.mnemonic.lower()
@@ -70,9 +71,9 @@ class Enc:
 				# xor reg_a, reg_a
 				if self.reg_index1 == self.reg_index2:
 					flag = {
-						8:  lambda self: self._m128_flag16(self.xmm_index1, 0, 0xff),
-						16: lambda self: self._m128_flag8(self.xmm_index1, 0, 0xffff),
-						32: lambda self: self._m128_flag4(self.xmm_index1, 0, 0xffffffff)
+						8:  lambda self: self._m128_flag16(self.xmm_index1, 0, self._ff_flag[8]),
+						16: lambda self: self._m128_flag8(self.xmm_index1, 0, self._ff_flag[16]),
+						32: lambda self: self._m128_flag4(self.xmm_index1, 0, self._ff_flag[32])
 					}[self.dis.operands[0].size](self)
 					self.lines.append('pand %s, %s' % (self.xmm_reg1, flag))
 			# xor reg, imm
