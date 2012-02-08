@@ -8,12 +8,10 @@ PROGS = $(patsubst %.cpp, %.exe, $(SRCS))
 testing/%.exe: testing/%.cpp
 	$(CC) $(CFLAGS) -o $@ $^
 
-xor:
-	$(TESTS) xor
-
-mov:
-	$(TESTS) mov
-
+# each instruction..
+%:
+	$(TESTS) $@
+	
 test: $(PROGS)
 	
 clean:
