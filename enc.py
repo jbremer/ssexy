@@ -114,6 +114,74 @@ class Enc:
 			self.lines.append('pshufd xmm%d, xmm%d, %d' % (tmp_reg, tmp_reg, self._flag_pshufd(0, position)))
 		self.lines.append('movss [0x%x], xmm%d' % tmp_reg)
 	
+	# read a [8, 16, 32] bit "emulated" gpr to the given xmm register's low 32bits
+	def _read_emugpr_xmm(self, gpr, xmm=0, size=32):
+		# TODO: 8/16bit support
+		
+		print 'reading.. gpr: %d, xmm: %d, size: %d' % (gpr, xmm, size)
+		
+		self.lines.append('pshufd xmm%d, %s, %d' % (xmm, self._xmm_gpr_index(gpr), self._flag_pshufd(3, gpr & 3)))
+		if size == 8:
+			self.lines.append('pand xmm%d, %s' % (xmm, self._m128_flag16(0, yes=self._ff_flag[size])))
+		elif size == 16:
+			self.lines.append('pand xmm%d, %s' % (xmm, self._m128_flag8(0, yes=self._ff_flag[size])))
+		elif size == 32:
+			self.lines.append('pand xmm%d, %s' % (xmm, self._m128_flag4(0, yes=self._ff_flag[size])))
+	
+	# write a [8, 16, 32] bit "emulated" gpr to the given xmm register's low 32bits
+	def _write_emugpr_xmm(self, gpr, xmm=0, size=32):
+		# TODO: 8/16bit support
+		
+		print 'writing.. gpr: %d, xmm: %d, size: %d' % (gpr, xmm, size)
+		
+		# zero the register out
+		self.lines.append('pand %s, %s' % (self._xmm_gpr_index(gpr), self._m128_flagsize(gpr & 3, no=self._ff_flag[size], size=size)))
+		
+		# make sure the value is in the correct dword
+		if gpr: self.lines.append('pshufd xmm%d, xmm%d, %d' % (xmm, xmm, self._flag_pshufd(gpr & 3, 0)))
+		
+		# zero everything out for the source operand
+		self.lines.append('pand xmm%d, %s' % (xmm, self._m128_flag4(gpr & 3, yes=self._ff_flag[size])))
+		
+		# write the new value
+		self.lines.append('por %s, xmm%d' % (self._xmm_gpr_index(gpr), xmm))
+		
+		#print '\n'.join(self.lines)
+	
+	def _read_memory_xmm(self, addr, xmm=0, size=32):
+		# TODO: 8/16bit support
+		
+		self.lines.append('movd xmm%d, dword ptr [0x%08x]' % (xmm, addr))
+		
+	def _write_memory_xmm(self, addr, xmm=0, size=32):
+		# TODO: 8/16bit support
+		
+		self.lines.append('movd dword ptr [0x%08x], xmm%d' % (addr, xmm))
+	
+	def _read_value_xmm(self, operand, xmm=0):
+		op = self.dis.operands[operand]
+		if op.type == OPERAND_REGISTER:
+			self._read_emugpr_xmm(op.index & 7, xmm=xmm, size=op.size)
+		elif op.type == OPERAND_IMMEDIATE:
+			self.lines.append('movapd xmm%d, %s' % (xmm, self._m128([op.value,0,0,0])))
+		elif op.type == OPERAND_ABSOLUTE_ADDRESS:
+			self._read_memory_xmm(op.disp, xmm=xmm, size=op.size)
+		elif op.type == OPERAND_MEMORY:
+			# TODO: evaluate memory address expression
+			self = self
+	
+	def _write_value_xmm(self, operand, xmm=0):
+		op = self.dis.operands[operand]
+		if op.type == OPERAND_REGISTER:
+			self._write_emugpr_xmm(op.index & 7, xmm=xmm, size=op.size)
+		elif op.type == OPERAND_IMMEDIATE:
+			raise Exception('dafuq')
+		elif op.type == OPERAND_ABSOLUTE_ADDRESS:
+			self._write_memory_xmm(op.disp, xmm=xmm, size=op.size)
+		elif op.type == OPERAND_MEMORY:
+			# TODO: evaluate memory address expression
+			self = self
+	
 	def _encode_xor(self):
 		# xor reg, xxx
 		if self.dis.operands[0].type == OPERAND_REGISTER:
