@@ -18,18 +18,28 @@ class Enc:
 		self.lines = []
 		
 		if len(dis.operands) > 0:
-			if dis.operands[0].type == OPERAND_REGISTER:
+			self.type1 = dis.operands[0].type
+			if self.type1 == OPERAND_REGISTER:
 				self.reg_index1 = dis.operands[0].index & 7
 				self.xmm_index1 = dis.operands[0].index & 3
 				self.xmm_reg1 = self._xmm_gpr_index(self.reg_index1)
 				self.size1 = self.dis.operands[0].size
+			elif self.type1 == OPERAND_IMMEDIATE:
+				self.imm1 = self.dis.operands[0].value
+			elif self.type1 == OPERAND_ABSOLUTE_ADDRESS:
+				self.type1 = OPERAND_MEMORY
 		
 		if len(dis.operands) > 1:
-			if dis.operands[1].type == OPERAND_REGISTER:
+			self.type2 = dis.operands[1].type
+			if self.type2 == OPERAND_REGISTER:
 				self.reg_index2 = dis.operands[1].index & 7
 				self.xmm_index2 = dis.operands[1].index & 3
 				self.xmm_reg2 = self._xmm_gpr_index(self.reg_index2)
 				self.size2 = self.dis.operands[1].size
+			elif self.type2 == OPERAND_IMMEDIATE:
+				self.imm2 = self.dis.operands[1].value
+			elif self.type2 == OPERAND_ABSOLUTE_ADDRESS:
+				self.type2 = OPERAND_MEMORY
 	
 	# reset labels dict
 	def reset_labels(self):
@@ -49,33 +59,38 @@ class Enc:
 	def _m128(self, val):
 		if str(val) not in Enc._labels:
 			self.lines.append('jmp m128_%d_end' % len(Enc._labels))
-			self.lines.append('.align 16')
-			self.lines.append('m128_%d:' % len(Enc._labels))
-			self.lines.append('.long 0x%x, 0x%x, 0x%x, 0x%x' % tuple(val))
+			self.lines.append('align 16, db 0')
+			self.lines.append('m128_%d: ' % len(Enc._labels) + 'dd 0x%08x, 0x%08x, 0x%08x, 0x%08x' % tuple(val))
 			self.lines.append('m128_%d_end:' % len(Enc._labels))
-			Enc._labels[str(val)] = 'm128_%d' % len(Enc._labels)
+			Enc._labels[str(val)] = 'dqword [m128_%d]' % len(Enc._labels)
 		return Enc._labels[str(val)]
 	
 	# construct a 16byte xmm value from 4 dwords
-	def _m128_flag4(self, index, yes, no=0):
+	def _m128_flag4(self, index, yes=0, no=0):
 		val = [no for i in range(4)]
 		val[index] = yes
 		return self._m128(val)
 	
 	# construct a 16byte xmm value from 8 words
-	def _m128_flag8(self, index, yes, no=0):
+	def _m128_flag8(self, index, yes=0, no=0):
 		val = [no for i in range(8)]
 		val[index * 2] = yes
 		return self._m128([(val[i] + (val[i+1] << 16)) for i in xrange(0, 8, 2)])
 	
 	# construct a 16byte xmm value from 16 bytes
-	def _m128_flag16(self, index, yes, no=0):
+	def _m128_flag16(self, index, yes=0, no=0):
 		val = [no for i in range(16)]
 		val[index * 4] = yes
 		return self._m128([reduce(lambda x, y: x * 256 + y, val[i:i+4][::-1]) for i in xrange(0, 16, 4)])
 	
+	def _m128_flagsize(self, index, yes=0, no=0, size=32):
+		if size == 32:   return self._m128_flag4(index, yes, no)
+		elif size == 16: return self._m128_flag8(index, yes, no)
+		elif size == 8:  return self._m128_flag16(index, yes, no)
+		raise Exception('dafuq')
+	
 	# calculate the flag for pshufd instruction
-	def _flag_pshufd(self, index, value, flags=[0,1,2,3]):
+	def _flag_pshufd(self, index, value, flags=[0,0,0,0]):
 		flags[index & 3] = value & 3
 		return reduce(lambda x, y: x * 4 + y, flags)
 	
@@ -85,18 +100,18 @@ class Enc:
 		if size != 32:
 			self.lines.append('pand xmm%d, %s' % (reg, self._m128([self._ff_flag[size], 0, 0, 0])))
 		if position != 0:
-			self.lines.append('pshufd xmm%d, xmm%d, %d' % (reg, reg, self._flag_pshufd(position, 0, [3,3,3,3])))
+			self.lines.append('pshufd xmm%d, xmm%d, %d' % (reg, reg, self._flag_pshufd(position, 0)))
 	
 	# write a 8bit, 16bit or 32bit value to an address
 	def _write_mem(self, addr, value, tmp_reg=3, size=32, position=0):
 		if size != 32:
 			self._read_mem(tmp_reg, addr, position=position)
-			self.lines.append('pand xmm%d, %s' % (tmp_reg, self._m128_flag4(position, ~self._ff_flag[size], self._ff_flag[32])))
+			self.lines.append('pand xmm%d, %s' % (tmp_reg, self._m128_flag4(position, -self._ff_flag[size], self._ff_flag[32])))
 		else:
 			self.lines.append('pxor xmm%d, xmm%d' % (tmp_reg, tmp_reg))
-		self.lines.append('pxor xmm%d, %s' % (tmp_reg, self._m128_flag4(position, value, 0)))
+		self.lines.append('pxor xmm%d, %s' % (tmp_reg, self._m128_flag4(position, yes=value)))
 		if position != 0:
-			self.lines.append('pshufd xmm%d, xmm%d, %d' % (tmp_reg, tmp_reg, self._flag_pshufd(0, position, [3,3,3,3])))
+			self.lines.append('pshufd xmm%d, xmm%d, %d' % (tmp_reg, tmp_reg, self._flag_pshufd(0, position)))
 		self.lines.append('movss [0x%x], xmm%d' % tmp_reg)
 	
 	def _encode_xor(self):
