@@ -183,44 +183,33 @@ class Enc:
 			self = self
 	
 	def _encode_xor(self):
-		# xor reg, xxx
-		if self.dis.operands[0].type == OPERAND_REGISTER:
-			# xor reg_a, reg_b
-			if self.dis.operands[1].type == OPERAND_REGISTER:
-				# xor reg_a, reg_a
-				if self.reg_index1 == self.reg_index2:
-					flag = {
-						8:  lambda self: self._m128_flag16(self.xmm_index1, 0, self._ff_flag[8]),
-						16: lambda self: self._m128_flag8(self.xmm_index1, 0, self._ff_flag[16]),
-						32: lambda self: self._m128_flag4(self.xmm_index1, 0, self._ff_flag[32])
-					}[self.size1](self)
-					self.lines.append('pand %s, %s' % (self.xmm_reg1, flag))
-			# xor reg, imm
-			elif self.dis.operands[1].type == OPERAND_IMMEDIATE:
-				flag = self._m128_flag4(self.xmm_index1, self.dis.operands[1].value, 0)
-				self.lines.append('pxor %s, %s' % (self.xmm_reg1, flag))
+		self._read_value_xmm(0)
+		self._read_value_xmm(1, 1)
+		self.lines.append('pxor xmm0, xmm1')
+		self._write_value_xmm(0)
+	
+	def _encode_or(self):
+		self._read_value_xmm(0)
+		self._read_value_xmm(1, 1)
+		self.lines.append('por xmm0, xmm1')
+		self._write_value_xmm(0)
 	
 	def _encode_mov(self):
-		# mov reg, xxx
-		if self.dis.operands[0].type == OPERAND_REGISTER:
-			# mov reg_a, reg_b
-			if self.dis.operands[1].type == OPERAND_REGISTER:
-				# both registers are stored in the same xmm register
-				if self.xmm_index1 == self.xmm_index2:
-					if self.size1 == 32:
-						# duplicate the source 32bit to the destination 32bit
-						self.lines.append('pshufd %s, %s, %d' % (self.xmm_reg1, self.xmm_reg2, self._flag_pshufd(self.xmm_index1, self.xmm_index2)))
-				# one register remains in xmm6, the other in xmm7
-				else:
-					self.lines.append('pand %s, %s' % (self.xmm_reg1, self._m128_flag4(self.xmm_index1, 0, self._ff_flag[size])))
-					self.lines.append('pshufd xmm0, %s, %d' % (self.xmm_reg2, self._flag_pshufd(self.xmm_index1, self.xmm_index2)))
-					self.lines.append('pand %s, %s' % (self.xmm_reg2, self._m128_flag4(self.xmm_index2, self._ff_flag[size], 0)))
-					self.lines.append('pxor %s, %s' % (self.xmm_reg1, self.xmm_reg2))
-			# mov reg, imm
-			elif self.dis.operands[1].type == OPERAND_IMMEDIATE:
-				self.lines.append('pand %s, %s' % (self.xmm_reg1, self._m128_flag4(self.xmm_index1, ~self._ff_flag[size], self._ff_flag[32])))
-				self.lines.append('pxor %s, %s' % (self.xmm_reg1, self._m128_flag4(self.xmm_index1, self.dis.operands[1].value, 0)))
-
+		self._read_value_xmm(1)
+		self._write_value_xmm(0)
+	
+	def _encode_add(self):
+		self._read_value_xmm(0)
+		self._read_value_xmm(1, 1)
+		self.lines.append('paddd xmm0, xmm1')
+		self._write_value_xmm(0)
+	
+	def _encode_sub(self):
+		self._read_value_xmm(0)
+		self._read_value_xmm(1, 1)
+		self.lines.append('psubd xmm0, xmm1')
+		self._write_value_xmm(0)
+	
 if __name__ == '__main__':
 	lines = sys.stdin.readlines()
 	code = assemble(lines)
