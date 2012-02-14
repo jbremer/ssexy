@@ -5,8 +5,13 @@ ut = []
 count = 0
 
 # unit test for register manipulation
-def ut_reg(hex, eax=0x11111111, ecx=0x22222222, edx=0x33333333, ebx=0x44444444, esp=0x55555555, ebp=0x66666666, esi=0x77777777, edi=0x88888888):
+def ut_reg(hex, eax=0x11111111, ecx=0x22222222, edx=0x33333333, ebx=0x44444444, esp=0xb00b0ffc, ebp=0x66666666, esi=0x77777777, edi=0x88888888):
 	ut.append({'type': 'reg', 'hex': hex, 'regs': (eax % 2**32, ecx % 2**32, edx % 2**32, ebx % 2**32, esp % 2**32, ebp % 2**32, esi % 2**32, edi % 2**32)})
+
+# unit test for register manipulation *and* memory stuff
+def ut_mem(hex, eax=0x11111111, ecx=0x22222222, edx=0x33333333, ebx=0x44444444, esp=0xb00b0ffc, ebp=0x66666666, esi=0x77777777, edi=0x88888888, mem=[0,0,0,0]):
+	if len(mem) != 4: mem = mem + [0 in xrange(4 - len(mem))]
+	ut.append({'type': 'mem', 'hex': hex, 'regs': (eax % 2**32, ecx % 2**32, edx % 2**32, ebx % 2**32, esp % 2**32, ebp % 2**32, esi % 2**32, edi % 2**32), 'mem': mem})
 
 def test():
 	global count
@@ -14,7 +19,7 @@ def test():
 		test['asm'] = [] ; enc.Enc(None).reset_labels()
 		test['lines'] = [
 			'jmp m128_init0_end', 'align 16, db 0', 'm128_init0: dd 0x11111111, 0x22222222, 0x33333333, 0x44444444', 'm128_init0_end:',
-			'jmp m128_init1_end', 'align 16, db 0', 'm128_init1: dd 0x55555555, 0x66666666, 0x77777777, 0x88888888', 'm128_init1_end:',
+			'jmp m128_init1_end', 'align 16, db 0', 'm128_init1: dd 0xb00b0ffc, 0x66666666, 0x77777777, 0x88888888', 'm128_init1_end:',
 			'movapd xmm6, dqword [m128_init0]', 'movapd xmm7, dqword [m128_init1]']
 		for dis in DecomposeGenerator(0, test['hex'].decode('hex'), Decode32Bits):
 			test['lines'] += enc.Enc(dis).encode()
@@ -22,14 +27,25 @@ def test():
 		test['code'] = assemble.assemble(test['lines'], 'testing/' + str(count))
 		
 		sys.stderr.write('Processing %s -> %-32s\r' % (test['hex'], ' ; '.join(test['asm'])))
-		output = struct.unpack('LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL', assemble.Debuggable(test['code']).run())
-		if test['regs'] != output[24:]:
+		output = struct.unpack('L' * 36, assemble.Debuggable(test['code']).run())
+		if test['type'] in ['reg', 'mem'] and test['regs'] != output[24:]:
 			print '%s -> %s gave problems (%d)!' % (test['hex'], ' ; '.join(test['asm']), count)
 			print 'Generated SSE Assembly:\n' + '\n'.join(test['lines']) + '\n'
 			# print all xmm registers
 			for i in xrange(8): print 'xmm%d 0x%08x 0x%08x 0x%08x 0x%08x' % tuple([i] + list(output[i*4:i*4+4]))
 			# print all gpr's stored in xmm registers, 16 is offset of EAX in the Registers array
 			for i in xrange(8): print '%s 0x%08x -> 0x%08x' % (Registers[16+i], output[24+i], test['regs'][i])
+			print '' # newline
+			
+			assemble.Debuggable(test['code']).debug()
+		
+		# unit test with memory changes
+		if test['type'] == 'mem' and test['mem'] != output[28:]:
+			print '%s -> %s gave problems (%d)!' % (test['hex'], ' ; '.join(test['asm']), count)
+			print 'Generated SSE Assembly:\n' + '\n'.join(test['lines']) + '\n'
+			
+			# print the memory stuff
+			for i in len(output): print '%-3d: 0x%08x -> 0x%08x' % (i, output[28+i], test['mem'][i])
 			print '' # newline
 			
 			assemble.Debuggable(test['code']).debug()
@@ -71,8 +87,9 @@ def main():
 	bx  = 0x4444
 	bl  = 0x44
 	bh  = 0x44
-	esp = 0x55555555
-	sp  = 0x5555
+	# stack memory.. at address 0xb00b0000 with size = 0x1000
+	esp = 0xb00b0ffc
+	sp  = 0xfffc
 	ebp = 0x66666666
 	bp  = 0x6666
 	esi = 0x77777777

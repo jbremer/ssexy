@@ -40,6 +40,11 @@ class _CONTEXT(Structure):
 		('Unused2', c_char * (512-0xa0))
 	]
 
+class _Stack(Structure):
+	_fields_ = [
+		('Mem', c_uint * 4)
+	]
+
 class Debuggable:
 	def __init__(self, machine_code):
 		# copy of the raw machine code we have to process
@@ -48,12 +53,21 @@ class Debuggable:
 		# memory for our real machine code
 		self.code = kernel32.VirtualAlloc(None, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE)
 		
+		# stack memory
+		self._stack = msvcrt.malloc(32 * 4)
+		
+		# we start at the top of the stack
+		self.stack = self._stack + 4 * 4 - 4
+		
 		# list of instructions, for debugging purposes
 		self.instructions = []
 	
 	def __del__(self):
 		# free our machine code
 		kernel32.VirtualFree(self.code, 0, MEM_RELEASE)
+		
+		# free stack memory
+		kernel32.VirtualFree(self._stack, 0, MEM_RELEASE)
 	
 	def _run(self, machine_code, verbose = False):
 		# copy the buffer directly to memory
@@ -66,10 +80,12 @@ class Debuggable:
 		index = 0 ; self.instructions.append('RETN')
 		lastEip = None
 		lastXmm = [0 for i in xrange(32)]
+		lastMem = [0 for i in xrange(4)]
 		
 		# give it one millisecond every time to execute the following instruction..
 		while kernel32.WaitForSingleObject(hThread, 1) == WAIT_TIMEOUT:
 			context = _CONTEXT()
+			stack = _Stack()
 			
 			context.ContextFlags = CONTEXT_FULL | CONTEXT_EXTENDED_REGISTERS
 			kernel32.SuspendThread(hThread)
@@ -80,14 +96,21 @@ class Debuggable:
 				kernel32.ResumeThread(hThread)
 				continue
 			
-			# print the xmm registers
+			# print the xmm registers and the stack memory
 			if verbose:
 				print '0x%08x: %s' % (0xfed0000 + context.Eip - self.code, self.instructions[index])
 				for i in xrange(8):
 					if context.Xmm[i*4:i*4+4] != lastXmm[i*4:i*4+4]:
-						print 'xmm%d 0x%08x 0x%08x 0x%08x 0x%08x' % tuple([i] + context.Xmm[i*4:i*4+4])
-				print '' # newline
+						print 'xmm%d  0x%08x 0x%08x 0x%08x 0x%08x' % tuple([i] + context.Xmm[i*4:i*4+4])
 				lastXmm = context.Xmm
+				
+				# TODO: Come up with a better way to read the stack memory
+				kernel32.ReadProcessMemory(-1, self._stack, byref(stack), 4 * 4, None)
+				if lastXmm != stack.Mem:
+					print 'stack', ' '.join(map(lambda x: '0x%08x' % x, stack.Mem))
+					lastXmm = stack.Mem
+				
+				print '' # newline
 			
 			# store the last eip
 			lastEip = context.Eip
@@ -103,8 +126,8 @@ class Debuggable:
 		# close our thread handle
 		kernel32.CloseHandle(hThread)
 		
-		# return the Xmm registers
-		return context.Xmm
+		# return the Xmm registers and memory registers
+		return context.Xmm + stack.Mem
 	
 	def debug(self):
 		# disasm the machine code, to obtain each instruction so we can place a while(1) between them
