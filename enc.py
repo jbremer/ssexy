@@ -133,7 +133,7 @@ class Enc:
 		self.lines.append('pand %s, %s' % (self._xmm_gpr_index(gpr), self._m128_flagsize(gpr & 3, no=self._ff_flag[size], size=size)))
 		
 		# make sure the value is in the correct dword
-		if gpr: self.lines.append('pshufd xmm%d, xmm%d, %d' % (xmm, xmm, self._flag_pshufd(gpr & 3, 0)))
+		if gpr & 3: self.lines.append('pshufd xmm%d, xmm%d, %d' % (xmm, xmm, self._flag_pshufd(gpr & 3, 0)))
 		
 		# zero everything out for the source operand
 		self.lines.append('pand xmm%d, %s' % (xmm, self._m128_flag4(gpr & 3, yes=self._ff_flag[size])))
