@@ -181,6 +181,10 @@ class Enc:
 			# TODO: evaluate memory address expression
 			self = self
 	
+	def _encode_nop(self):
+		# do nothing
+		self
+	
 	def _encode_xor(self):
 		self._read_value_xmm(0)
 		self._read_value_xmm(1, 1)
@@ -191,6 +195,12 @@ class Enc:
 		self._read_value_xmm(0)
 		self._read_value_xmm(1, 1)
 		self.lines.append('por xmm0, xmm1')
+		self._write_value_xmm(0)
+	
+	def _encode_and(self):
+		self._read_value_xmm(0)
+		self._read_value_xmm(1, 1)
+		self.lines.append('pand xmm0, xmm1')
 		self._write_value_xmm(0)
 	
 	def _encode_mov(self):
@@ -227,6 +237,22 @@ class Enc:
 		
 		# esp is the first dword in the xmm7 register
 		self.lines.append('paddd xmm7, %s' % self._m128([4, 0, 0, 0]))
+	
+	def _encode_inc(self):
+		self._read_value_xmm(0)
+		self.lines.append('paddd xmm0, %s' % self._m128([1, 0, 0, 0]))
+		self._write_value_xmm(0)
+		
+	def _encode_dec(self):
+		self._read_value_xmm(0)
+		self.lines.append('psubd xmm0, %s' % self._m128([1, 0, 0, 0]))
+		self._write_value_xmm(0)
+	
+	def _encode_xchg(self):
+		self._read_value_xmm(0)
+		self._read_value_xmm(1, 1)
+		self._write_value_xmm(1, 0)
+		self._write_value_xmm(0, 1)
 	
 if __name__ == '__main__':
 	lines = sys.stdin.readlines()

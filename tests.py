@@ -74,7 +74,7 @@ def test(debug):
 
 def main():
 	index = None
-	tests = ['mov', 'xor', 'add', 'push', 'pop']
+	tests = ['mov', 'or', 'and', 'xor', 'add', 'inc', 'dec', 'xchg', 'push', 'pop']
 	if len(sys.argv) > 1:
 		argc = 1
 		try:
@@ -154,6 +154,14 @@ def main():
 		# xor ecx, esi
 		ut_reg('33ce', ecx=ecx^esi)
 	
+	if 'or' in tests:
+		# or esi, 0xffff0000
+		ut_reg('81ce0000ffff', esi=esi|0xffff0000)
+		
+	if 'and' in tests:
+		# and ebx, 0x00ffff00
+		ut_reg('81e300ffff00', ebx=ebx&0x00ffff00)
+	
 	if 'mov' in tests:
 		# mov ebx, edx
 		ut_reg('8bda', ebx=edx)
@@ -179,6 +187,27 @@ def main():
 		
 		# add ebx, 0xcafebabe
 		ut_reg('81c3bebafeca', ebx=ebx+0xcafebabe)
+	
+	if 'inc' in tests:
+		# inc eax
+		ut_reg('40', eax=eax+1)
+		
+		# inc esi
+		ut_reg('46', esi=esi+1)
+	
+	if 'dec' in tests:
+		# dec eax
+		ut_reg('48', eax=eax-1)
+		
+		# dec esi
+		ut_reg('4e', esi=esi-1)
+	
+	if 'xchg' in tests:
+		# xchg ebx, ecx
+		ut_reg('87cb', ebx=ecx, ecx=ebx)
+		
+		# xchg edx, edi
+		ut_reg('87fa', edx=edi, edi=edx)
 	
 	if 'push' in tests or 'pop' in tests:
 		# push 0x13371337
