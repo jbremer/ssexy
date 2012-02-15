@@ -188,7 +188,11 @@ class Enc:
 		elif op.type == OPERAND_ABSOLUTE_ADDRESS:
 			self._read_memory_xmm(op.disp, xmm=xmm, size=op.size)
 		elif op.type == OPERAND_MEMORY:
-			self._read_expr_mem(op, xmm=xmm, size=op.size)
+			self._read_expr_mem(op, xmm=xmm)
+			self.lines.append('movd eax, xmm%d' % xmm)
+			self.lines.append('movd xmm%d, dword [eax]' % xmm)
+			if op.size and op.size != 32:
+				self.lines.append('pand xmm%d, %s' % (xmm, self._m128([self._ff_flag[op.size], 0, 0, 0])))
 	
 	def _write_value_xmm(self, operand, xmm=0):
 		op = self.dis.operands[operand]
