@@ -231,8 +231,12 @@ class Enc:
 		self._read_value_xmm(1)
 		self._write_value_xmm(0)
 	
-	def _encode_lea(self):
+	def _encode_movzx(self):
 		self._read_value_xmm(1)
+		self._write_value_xmm(0)
+	
+	def _encode_lea(self):
+		self._read_expr_mem(self.dis.operands[1])
 		self._write_value_xmm(0)
 	
 	def _encode_shl(self):
@@ -288,6 +292,13 @@ class Enc:
 		self.lines.append('psubd xmm0, %s' % self._m128([1, 0, 0, 0]))
 		self._write_value_xmm(0)
 	
+	def _encode_mul(self):
+		self._read_emugpr_xmm(assemble.EAX)
+		self._read_value_xmm(0, 1)
+		self.lines.append('pmuludq xmm0, xmm1')
+		self.lines.append('pshufd xmm1, xmm0, %d' % self._flag_pshufd(3, 1))
+		self._write_emugpr_xmm(assemble.EAX, 0)
+		self._write_emugpr_xmm(assemble.EDX, 1)
 	def _encode_not(self):
 		self._read_value_xmm(0)
 		self.lines.append('pxor xmm0, %s' % self._m128([0xffffffff, 0, 0, 0]))

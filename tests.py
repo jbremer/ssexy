@@ -74,7 +74,7 @@ def test(debug):
 
 def main():
 	index = None
-	tests = ['mov', 'or', 'and', 'xor', 'add', 'inc', 'dec', 'xchg', 'push', 'pop', 'not', 'neg', 'leave', 'lea', 'shl', 'shr']
+	tests = ['mov', 'or', 'and', 'xor', 'add', 'inc', 'dec', 'xchg', 'push', 'pop', 'not', 'neg', 'leave', 'lea', 'shl', 'shr', 'mul', 'movzx']
 	if len(sys.argv) > 1:
 		argc = 1
 		try:
@@ -267,6 +267,20 @@ def main():
 		
 		# mov ecx, 9 ; shr ebp, cl
 		ut_reg('b909000000d3ed', ecx=9, ebp=0x00333333)
+	
+	if 'mul' in tests:
+		# mul ebx
+		ut_reg('f7e3', eax=0x1d950c84, edx=0x048d159e)
+	
+	if 'movzx' in tests:
+		# movzx eax, dl
+		ut_reg('0fb6c2', eax=0x00000033)
+		
+		# movzx eax, dx
+		ut_reg('0fb7c2', eax=0x00003333)
+		
+		# push 0x1337b00b ; movzx esi, word [esp]
+		ut_mem('680bb037130fb73424', mem=[0x1337b00b], esi=0xb00b, esp=esp-4)
 	
 	# only do a certain test
 	debug = False

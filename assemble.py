@@ -12,7 +12,14 @@ CONTEXT_DEBUG_REGISTERS     = CONTEXT_X86 | 0x10L # DB 0-3,6,7
 CONTEXT_EXTENDED_REGISTERS  = CONTEXT_X86 | 0x20L # cpu specific extensions
 CONTEXT_FULL                = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_SEGMENTS
 
+EAX = 0
+ECX = 1
+EDX = 2
+EBX = 3
 ESP = 4
+EBP = 5
+ESI = 6
+EDI = 7
 
 kernel32 = windll.kernel32
 msvcrt = cdll.msvcrt
