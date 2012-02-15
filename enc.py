@@ -156,6 +156,22 @@ class Enc:
 		
 		self.lines.append('movd dword ptr [0x%08x], xmm%d' % (addr, xmm))
 	
+	def _read_expr_mem(self, operand, xmm=0, size=32):
+		# TODO: 8/16bit support
+		
+		self.lines.append('movapd xmm%d, %s' % (xmm, self._m128([operand.disp, 0, 0, 0])))
+		if operand.base != None:
+			self._read_emugpr_xmm(operand.base & 7, 2, size)
+			self.lines.append('paddd xmm%d, xmm2' % xmm)
+		if operand.index != None:
+			self._read_emugpr_xmm(operand.index & 7, 2, size)
+			if operand.scale != 1:
+				# there must be a better way to do this,
+				# but I can't come up with it atm.
+				conv = {2: 1, 4: 2, 8: 3}
+				self.lines.append('pslld xmm2, %d' % conv[operand.scale])
+			self.lines.append('paddd xmm%d, xmm2' % xmm)
+	
 	def _read_value_xmm(self, operand, xmm=0):
 		op = self.dis.operands[operand]
 		if op.type == OPERAND_REGISTER:
@@ -165,8 +181,7 @@ class Enc:
 		elif op.type == OPERAND_ABSOLUTE_ADDRESS:
 			self._read_memory_xmm(op.disp, xmm=xmm, size=op.size)
 		elif op.type == OPERAND_MEMORY:
-			# TODO: evaluate memory address expression
-			self = self
+			self._read_expr_mem(op, xmm=xmm, size=op.size)
 	
 	def _write_value_xmm(self, operand, xmm=0):
 		op = self.dis.operands[operand]
@@ -204,6 +219,22 @@ class Enc:
 	
 	def _encode_mov(self):
 		self._read_value_xmm(1)
+		self._write_value_xmm(0)
+	
+	def _encode_lea(self):
+		self._read_value_xmm(1)
+		self._write_value_xmm(0)
+	
+	def _encode_shl(self):
+		self._read_value_xmm(0)
+		self._read_value_xmm(1, 1)
+		self.lines.append('pslld xmm0, xmm1')
+		self._write_value_xmm(0)
+	
+	def _encode_shr(self):
+		self._read_value_xmm(0)
+		self._read_value_xmm(1, 1)
+		self.lines.append('psrld xmm0, xmm1')
 		self._write_value_xmm(0)
 	
 	def _encode_add(self):
