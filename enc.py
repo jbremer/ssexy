@@ -117,8 +117,6 @@ class Enc:
 	def _read_emugpr_xmm(self, gpr, xmm=0, size=32):
 		# TODO: 8/16bit support
 		
-		print 'reading.. gpr: %d, xmm: %d, size: %d' % (gpr, xmm, size)
-		
 		self.lines.append('pshufd xmm%d, %s, %d' % (xmm, self._xmm_gpr_index(gpr), self._flag_pshufd(3, gpr & 3)))
 		if size == 8:
 			self.lines.append('pand xmm%d, %s' % (xmm, self._m128_flag16(0, yes=self._ff_flag[size])))
@@ -130,8 +128,6 @@ class Enc:
 	# write a [8, 16, 32] bit "emulated" gpr to the given xmm register's low 32bits
 	def _write_emugpr_xmm(self, gpr, xmm=0, size=32):
 		# TODO: 8/16bit support
-		
-		print 'writing.. gpr: %d, xmm: %d, size: %d' % (gpr, xmm, size)
 		
 		# zero the register out
 		self.lines.append('pand %s, %s' % (self._xmm_gpr_index(gpr), self._m128_flagsize(gpr & 3, no=self._ff_flag[size], size=size)))

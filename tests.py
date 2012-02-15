@@ -89,8 +89,6 @@ def main():
 	if not os.access('testing', os.R_OK):
 		os.mkdir('testing')
 	
-	print str(tests), index
-	
 	eax = 0x11111111
 	ax  = 0x1111
 	al  = 0x11
