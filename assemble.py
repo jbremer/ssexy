@@ -53,8 +53,9 @@ class Debuggable:
 		# stack of our stuff
 		self.stack = stack
 		
-		# list of instructions, for debugging purposes
+		# list of instructions and m128s, for debugging purposes
 		self.instructions = []
+		self.m128s = {}
 	
 	def _run(self, machine_code, verbose = False):
 		# copy the buffer directly to memory
@@ -91,7 +92,15 @@ class Debuggable:
 			
 			# print the xmm registers and the stack memory
 			if verbose:
+				# print the xmm registers that will be altered by this instruction before the instruction
+				for i in xrange(8):
+					if context.Xmm[i*4:i*4+4] != lastXmm[i*4:i*4+4]:
+						print 'xmm%d  0x%08x 0x%08x 0x%08x 0x%08x' % tuple([i] + lastXmm[i*4:i*4+4])
+				
+				# print the instruction (with possibly the m128 referenced)
 				print '0x%08x: %s' % (0xfed0000 + context.Eip - self.code, self.instructions[index])
+				
+				# print the xmm registers after the instructions
 				for i in xrange(8):
 					if context.Xmm[i*4:i*4+4] != lastXmm[i*4:i*4+4]:
 						print 'xmm%d  0x%08x 0x%08x 0x%08x 0x%08x' % tuple([i] + context.Xmm[i*4:i*4+4])
@@ -137,21 +146,29 @@ class Debuggable:
 				jmp_len = int(hexdump[2:], 16)
 				
 				# extract the m128
-				m128 = self.machine_code[offset+jmp_len-16:offset+jmp_len].encode('hex')
+				m128 = self.machine_code[offset+jmp_len-16:offset+jmp_len]
 				
 				# align to 16 bytes and write the m128 (including jmp over it)
 				# 32 bytes = 30 bytes align + 2 bytes short jmp
-				buf += '90'*(30 - (len(buf)/2 % 16)) + 'eb10' + m128
+				buf += '90'*(30 - (len(buf)/2 % 16)) + 'eb10' + m128.encode('hex')
 				
 				# write this addr in our dictionary
 				addr[0xfed0000+offset+jmp_len-16] = self.code + len(buf)/2 - 16
+				
+				# keep a dictionary with address -> m128
+				self.m128s[0xfed0000+offset+jmp_len-16] = struct.unpack('LLLL', m128)
 				
 				offset += jmp_len
 			# normal and sse instructions are followed by a while(1) loop
 			else:
 				buf += hexdump + 'ebfe'
-				# TODO: also dump the m128 from memory, if referred
-				self.instructions.append(str(instr))
+				
+				# if referenced, display m128 as well
+				m128 = ''
+				if instr.operands[1].type == distorm3.OPERAND_ABSOLUTE_ADDRESS:
+					m128 = '\nm128  ' + ' '.join(map(lambda x: '0x%08x' % x, self.m128s[instr.operands[1].disp]))
+				
+				self.instructions.append(str(instr).lower() + m128)
 		
 		# replace all old addresses with new addresses, using a sortof bad way
 		for key, value in addr.items():
