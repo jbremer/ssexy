@@ -38,7 +38,7 @@ def test(debug):
 		sys.stderr.write('Processing %s -> %s (%d)\r' % (test['hex'], ' ; '.join(test['asm']), count))
 		output = list(struct.unpack('L' * 36, assemble.Debuggable(test['code'], _stack, code).run()))
 		# adjust the `esp' register to remain correctly.. :)
-		output[28] = 0xb00b0ffc - stack + output[28]
+		if (output[28] >> 16) == (stack >> 16): output[28] = 0xb00b0ffc - stack + output[28]
 		if test['type'] in ['reg', 'mem'] and test['regs'] != tuple(output[24:32]):
 			print '%s -> %s gave register problems (%d)!' % (test['hex'], ' ; '.join(test['asm']), count)
 			print 'Generated SSE Assembly:\n' + '\n'.join(test['lines']) + '\n'
