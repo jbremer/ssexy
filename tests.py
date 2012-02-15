@@ -181,6 +181,9 @@ def main():
 		
 		# mov esp, ebp
 		ut_reg('8be5', esp=ebp)
+		
+		# push 0 ; mov dword [esp], 0x87654321
+		ut_mem('6a00c7042421436587', mem=[0x87654321], esp=esp-4)
 	
 	if 'add' in tests:
 		# add ecx, esi
