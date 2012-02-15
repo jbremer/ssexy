@@ -1,5 +1,4 @@
-import sys, binascii
-from assemble import assemble
+import sys, binascii, assemble
 from distorm3 import OPERAND_REGISTER, OPERAND_IMMEDIATE, OPERAND_MEMORY, OPERAND_ABSOLUTE_ADDRESS
 
 class Enc:
@@ -212,5 +211,5 @@ class Enc:
 	
 if __name__ == '__main__':
 	lines = sys.stdin.readlines()
-	code = assemble(lines)
+	code = assemble.assemble(lines)
 	print binascii.hexlify(code)

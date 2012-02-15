@@ -1,11 +1,6 @@
 import os, struct, distorm3
 from ctypes import *
 
-MEM_COMMIT = 0x1000
-MEM_RESERVE = 0x2000
-MEM_RELEASE = 0x8000
-PAGE_EXECUTE_READWRITE = 0x40
-PAGE_READWRITE = 0x04
 WAIT_TIMEOUT = 0x102
 
 CONTEXT_X86                 = 0x00010000
@@ -16,6 +11,8 @@ CONTEXT_FLOATING_POINT      = CONTEXT_X86 | 0x8L # 387 state
 CONTEXT_DEBUG_REGISTERS     = CONTEXT_X86 | 0x10L # DB 0-3,6,7
 CONTEXT_EXTENDED_REGISTERS  = CONTEXT_X86 | 0x20L # cpu specific extensions
 CONTEXT_FULL                = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_SEGMENTS
+
+ESP = 4
 
 kernel32 = windll.kernel32
 msvcrt = cdll.msvcrt
@@ -46,28 +43,18 @@ class _Stack(Structure):
 	]
 
 class Debuggable:
-	def __init__(self, machine_code):
+	def __init__(self, machine_code, stack, code):
 		# copy of the raw machine code we have to process
 		self.machine_code = machine_code
 		
 		# memory for our real machine code
-		self.code = kernel32.VirtualAlloc(None, 0x1000, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE)
+		self.code = code
 		
-		# stack memory
-		self._stack = msvcrt.malloc(32 * 4)
-		
-		# we start at the top of the stack
-		self.stack = self._stack + 4 * 4 - 4
+		# stack of our stuff
+		self.stack = stack
 		
 		# list of instructions, for debugging purposes
 		self.instructions = []
-	
-	def __del__(self):
-		# free our machine code
-		kernel32.VirtualFree(self.code, 0, MEM_RELEASE)
-		
-		# free stack memory
-		kernel32.VirtualFree(self._stack, 0, MEM_RELEASE)
 	
 	def _run(self, machine_code, verbose = False):
 		# copy the buffer directly to memory
@@ -82,6 +69,9 @@ class Debuggable:
 		lastXmm = [0 for i in xrange(32)]
 		lastMem = [0 for i in xrange(4)]
 		
+		# clean the stack.. :) that is, zero it out.
+		kernel32.WriteProcessMemory(-1, self.stack, byref(_Stack()), 4 * 4, None)
+		
 		# give it one millisecond every time to execute the following instruction..
 		while kernel32.WaitForSingleObject(hThread, 1) == WAIT_TIMEOUT:
 			context = _CONTEXT()
@@ -90,6 +80,9 @@ class Debuggable:
 			context.ContextFlags = CONTEXT_FULL | CONTEXT_EXTENDED_REGISTERS
 			kernel32.SuspendThread(hThread)
 			kernel32.GetThreadContext(hThread, byref(context))
+			
+			# read the stack memory here (so it also works in non-verbose mode)
+			kernel32.ReadProcessMemory(-1, self.stack, byref(stack), 4 * 4, None)
 			
 			# if eip didn't change yet or eip is not even in our code section yet, continue..
 			if context.Eip == lastEip or context.Eip < self.code or context.Eip > self.code + len(machine_code):
@@ -105,10 +98,9 @@ class Debuggable:
 				lastXmm = context.Xmm
 				
 				# TODO: Come up with a better way to read the stack memory
-				kernel32.ReadProcessMemory(-1, self._stack, byref(stack), 4 * 4, None)
-				if lastXmm != stack.Mem:
+				if lastMem != list(stack.Mem):
 					print 'stack', ' '.join(map(lambda x: '0x%08x' % x, stack.Mem))
-					lastXmm = stack.Mem
+					lastMem = list(stack.Mem)
 				
 				print '' # newline
 			
@@ -127,16 +119,17 @@ class Debuggable:
 		kernel32.CloseHandle(hThread)
 		
 		# return the Xmm registers and memory registers
-		return context.Xmm + stack.Mem
+		return ''.join(map(lambda x: struct.pack('L', x), list(context.Xmm) + list(stack.Mem)))
 	
 	def debug(self):
 		# disasm the machine code, to obtain each instruction so we can place a while(1) between them
 		buf = '' ; offset = 0 ; addr = {}
 		while offset != len(self.machine_code):
-			(_, size, instruction, hexdump) = distorm3.Decode(None, self.machine_code[offset:])[0]
+			instr = distorm3.Decompose(None, self.machine_code[offset:])[0]
+			hexdump = instr.instructionBytes.encode('hex')
 			
 			# increase offset
-			offset += size
+			offset += len(hexdump) / 2
 			
 			# short jmp, we have to skip this.. (16-byte aligned m128)
 			if hexdump[:2] == 'eb':
@@ -158,7 +151,7 @@ class Debuggable:
 			else:
 				buf += hexdump + 'ebfe'
 				# TODO: also dump the m128 from memory, if referred
-				self.instructions.append(instruction)
+				self.instructions.append(str(instr))
 		
 		# replace all old addresses with new addresses, using a sortof bad way
 		for key, value in addr.items():
