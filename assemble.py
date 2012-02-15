@@ -61,6 +61,9 @@ class Debuggable:
 		# copy the buffer directly to memory
 		msvcrt.memcpy(self.code, byref(create_string_buffer(machine_code)), len(machine_code))
 		
+		# clean the stack.. :) that is, zero it out.
+		kernel32.WriteProcessMemory(-1, self.stack, byref(_Stack()), 4 * 4, None)
+		
 		# create new thread
 		hThread = kernel32.CreateThread(None, None, self.code, None, None, None)
 		
@@ -69,9 +72,6 @@ class Debuggable:
 		lastEip = None
 		lastXmm = [0 for i in xrange(32)]
 		lastMem = [0 for i in xrange(4)]
-		
-		# clean the stack.. :) that is, zero it out.
-		kernel32.WriteProcessMemory(-1, self.stack, byref(_Stack()), 4 * 4, None)
 		
 		# give it one millisecond every time to execute the following instruction..
 		while kernel32.WaitForSingleObject(hThread, 1) == WAIT_TIMEOUT:
@@ -82,11 +82,16 @@ class Debuggable:
 			kernel32.SuspendThread(hThread)
 			kernel32.GetThreadContext(hThread, byref(context))
 			
+			# eip is not in our code section, let's just continue
+			if context.Eip < self.code or context.Eip > self.code + len(machine_code):
+				kernel32.ResumeThread(hThread)
+				continue
+			
 			# read the stack memory here (so it also works in non-verbose mode)
 			kernel32.ReadProcessMemory(-1, self.stack, byref(stack), 4 * 4, None)
 			
 			# if eip didn't change yet or eip is not even in our code section yet, continue..
-			if context.Eip == lastEip or context.Eip < self.code or context.Eip > self.code + len(machine_code):
+			if context.Eip == lastEip:
 				kernel32.ResumeThread(hThread)
 				continue
 			
