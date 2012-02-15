@@ -209,6 +209,25 @@ class Enc:
 		self.lines.append('psubd xmm0, xmm1')
 		self._write_value_xmm(0)
 	
+	def _encode_push(self):
+		# esp is the first dword in the xmm7 register
+		self.lines.append('psubd xmm7, %s' % self._m128([4, 0, 0, 0]))
+		
+		self._read_value_xmm(0)
+		self._read_emugpr_xmm(assemble.ESP, 1)
+		self.lines.append('movd eax, xmm1')
+		self.lines.append('movd dword [eax], xmm0')
+	
+	def _encode_pop(self):
+		self._read_value_xmm(0)
+		self._read_emugpr_xmm(assemble.ESP, 1)
+		self.lines.append('movd eax, xmm1')
+		self.lines.append('movd xmm0, dword [eax]')
+		self._write_value_xmm(0)
+		
+		# esp is the first dword in the xmm7 register
+		self.lines.append('paddd xmm7, %s' % self._m128([4, 0, 0, 0]))
+	
 if __name__ == '__main__':
 	lines = sys.stdin.readlines()
 	code = assemble.assemble(lines)

@@ -74,7 +74,7 @@ def test(debug):
 
 def main():
 	index = None
-	tests = ['mov', 'xor', 'add']
+	tests = ['mov', 'xor', 'add', 'push', 'pop']
 	if len(sys.argv) > 1:
 		argc = 1
 		try:
@@ -179,6 +179,13 @@ def main():
 		
 		# add ebx, 0xcafebabe
 		ut_reg('81c3bebafeca', ebx=ebx+0xcafebabe)
+	
+	if 'push' in tests or 'pop' in tests:
+		# push 0x13371337
+		ut_mem('6837133713', esp=esp-4, mem=[0x13371337])
+		
+		# push 0xdeadf00d ; pop edx
+		ut_mem('680df0adde5a', mem=[0xdeadf00d], edx=0xdeadf00d)
 	
 	# only do a certain test
 	debug = False
