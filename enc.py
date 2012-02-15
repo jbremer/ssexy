@@ -1,5 +1,8 @@
-import sys, binascii, assemble
+import sys, binascii, assemble, distorm3
 from distorm3 import OPERAND_REGISTER, OPERAND_IMMEDIATE, OPERAND_MEMORY, OPERAND_ABSOLUTE_ADDRESS
+
+def enc_apply(hex):
+	return Enc(distorm3.Decompose(0, hex.decode('hex'), distorm3.Decode32Bits)[0]).encode()
 
 class Enc:
 	_labels = {}
@@ -244,12 +247,40 @@ class Enc:
 		self.lines.append('psubd xmm0, %s' % self._m128([1, 0, 0, 0]))
 		self._write_value_xmm(0)
 	
+	def _encode_not(self):
+		self._read_value_xmm(0)
+		self.lines.append('pxor xmm0, %s' % self._m128([0xffffffff, 0, 0, 0]))
+		self._write_value_xmm(0)
+	
+	def _encode_neg(self):
+		self._read_value_xmm(0)
+		self.lines.append('pxor xmm1, xmm1')
+		self.lines.append('psubd xmm1, xmm0')
+		self._write_value_xmm(0, 1)
+	
 	def _encode_xchg(self):
 		self._read_value_xmm(0)
 		self._read_value_xmm(1, 1)
 		self._write_value_xmm(1, 0)
 		self._write_value_xmm(0, 1)
 	
+	def _encode_leave(self):
+		# leave = mov esp, ebp ; pop ebp
+		self.lines += enc_apply('8be5')
+		self.lines += enc_apply('5d')
+	
+	def _encode_ret(self):
+		# ret = pop eip
+		
+		# we encode as pop eax ; jmp eax
+		self._read_emugpr_xmm(assemble.ESP)
+		self.lines.append('movd eax, xmm0')
+		
+		# esp is the first dword in the xmm7 register
+		self.lines.append('paddd xmm7, %s' % self._m128([4, 0, 0, 0]))
+		
+		# jump to the address
+		self.lines.append('jmp dword [eax]')
 if __name__ == '__main__':
 	lines = sys.stdin.readlines()
 	code = assemble.assemble(lines)

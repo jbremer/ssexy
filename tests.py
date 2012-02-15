@@ -74,7 +74,7 @@ def test(debug):
 
 def main():
 	index = None
-	tests = ['mov', 'or', 'and', 'xor', 'add', 'inc', 'dec', 'xchg', 'push', 'pop']
+	tests = ['mov', 'or', 'and', 'xor', 'add', 'inc', 'dec', 'xchg', 'push', 'pop', 'not', 'neg', 'leave']
 	if len(sys.argv) > 1:
 		argc = 1
 		try:
@@ -178,6 +178,9 @@ def main():
 		
 		# mov cx, si
 		ut_reg('668bce', ecx=0x7777)
+		
+		# mov esp, ebp
+		ut_reg('8be5', esp=ebp)
 	
 	if 'add' in tests:
 		# add ecx, esi
@@ -213,6 +216,33 @@ def main():
 		
 		# push 0xdeadf00d ; pop edx
 		ut_mem('680df0adde5a', mem=[0xdeadf00d], edx=0xdeadf00d)
+		
+		# push 0xabcddcba ; push 0xdefdefde
+		ut_mem('68badccdab68deeffdde', mem=[0xabcddcba, 0xdefdefde], esp=esp-8)
+	
+	if 'not' in tests:
+		# not eax
+		ut_reg('f7d0', eax=~eax)
+		
+		# not eax ; not eax
+		ut_reg('f7d0' * 2)
+	
+	if 'neg' in tests:
+		# neg eax
+		ut_reg('f7d8', eax=-eax)
+		
+		# xor eax, eax ; dec eax ; neg eax
+		ut_reg('33c048f7d8', eax=1)
+	
+	if 'leave' in tests:
+		# push 0x12345678 ; mov ebp, esp ; leave
+		ut_mem('68785634128becc9', mem=[0x12345678], ebp=0x12345678)
+	
+	# this crashes python, so this can only be executed
+	# by explicitely defining `ret' on the commandline
+	if 'ret' in tests:
+		# push 0x41414141 ; retn
+		ut_mem('6841414141c3')
 	
 	# only do a certain test
 	debug = False
