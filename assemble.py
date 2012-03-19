@@ -10,7 +10,8 @@ CONTEXT_SEGMENTS            = CONTEXT_X86 | 0x4L # DS, ES, FS, GS
 CONTEXT_FLOATING_POINT      = CONTEXT_X86 | 0x8L # 387 state
 CONTEXT_DEBUG_REGISTERS     = CONTEXT_X86 | 0x10L # DB 0-3,6,7
 CONTEXT_EXTENDED_REGISTERS  = CONTEXT_X86 | 0x20L # cpu specific extensions
-CONTEXT_FULL                = CONTEXT_CONTROL | CONTEXT_INTEGER | CONTEXT_SEGMENTS
+CONTEXT_FULL                = CONTEXT_CONTROL | CONTEXT_INTEGER | \
+        CONTEXT_SEGMENTS
 
 EAX = 0
 ECX = 1
@@ -66,10 +67,11 @@ class Debuggable:
 	
 	def _run(self, machine_code, verbose = False):
 		# copy the buffer directly to memory
-		msvcrt.memcpy(self.code, byref(create_string_buffer(machine_code)), len(machine_code))
+		msvcrt.memcpy(self.code, byref(create_string_buffer(machine_code)), \
+		        len(machine_code))
 		
 		# clean the stack.. :) that is, zero it out.
-		kernel32.WriteProcessMemory(-1, self.stack, byref(_Stack()), 4 * 4, None)
+		kernel32.WriteProcessMemory(-1, self.stack, byref(_Stack()), 16, None)
 		
 		# create new thread
 		hThread = kernel32.CreateThread(None, None, self.code, None, None, None)
@@ -80,7 +82,7 @@ class Debuggable:
 		lastXmm = [0 for i in xrange(32)]
 		lastMem = [0 for i in xrange(4)]
 		
-		# give it one millisecond every time to execute the following instruction..
+		# give it one millisecond to execute the following instruction..
 		while kernel32.WaitForSingleObject(hThread, 1) == WAIT_TIMEOUT:
 			context = _CONTEXT()
 			stack = _Stack()
@@ -90,37 +92,44 @@ class Debuggable:
 			kernel32.GetThreadContext(hThread, byref(context))
 			
 			# eip is not in our code section, let's just continue
-			if context.Eip < self.code or context.Eip > self.code + len(machine_code):
+			if context.Eip < self.code or context.Eip > self.code + \
+			        len(machine_code):
 				kernel32.ResumeThread(hThread)
 				continue
 			
 			# read the stack memory here (so it also works in non-verbose mode)
-			kernel32.ReadProcessMemory(-1, self.stack, byref(stack), 4 * 4, None)
+			kernel32.ReadProcessMemory(-1, self.stack, byref(stack), 16, None)
 			
-			# if eip didn't change yet or eip is not even in our code section yet, continue..
+			# if eip didn't change yet or eip is not even in
+			# our code section yet, continue..
 			if context.Eip == lastEip:
 				kernel32.ResumeThread(hThread)
 				continue
 			
 			# print the xmm registers and the stack memory
 			if verbose:
-				# print the xmm registers that will be altered by this instruction before the instruction
+				# print the xmm registers that will be altered by this
+				# instruction before the instruction
 				for i in xrange(8):
 					if context.Xmm[i*4:i*4+4] != lastXmm[i*4:i*4+4]:
-						print 'xmm%d  0x%08x 0x%08x 0x%08x 0x%08x' % tuple([i] + lastXmm[i*4:i*4+4])
+						print 'xmm%d  0x%08x 0x%08x 0x%08x 0x%08x' % \
+						        tuple([i] + lastXmm[i*4:i*4+4])
 				
 				# print the instruction (with possibly the m128 referenced)
-				print '0x%08x: %s' % (0xfed0000 + context.Eip - self.code, self.instructions[index])
+				print '0x%08x: %s' % (0xfed0000 + context.Eip - self.code, \
+				        self.instructions[index])
 				
 				# print the xmm registers after the instructions
 				for i in xrange(8):
 					if context.Xmm[i*4:i*4+4] != lastXmm[i*4:i*4+4]:
-						print 'xmm%d  0x%08x 0x%08x 0x%08x 0x%08x' % tuple([i] + context.Xmm[i*4:i*4+4])
+						print 'xmm%d  0x%08x 0x%08x 0x%08x 0x%08x' % \
+						        tuple([i] + context.Xmm[i*4:i*4+4])
 				lastXmm = context.Xmm
 				
 				# TODO: Come up with a better way to read the stack memory
 				if lastMem != list(stack.Mem):
-					print 'stack', ' '.join(map(lambda x: '0x%08x' % x, stack.Mem))
+					print 'stack', ' '.join(map(lambda x: '0x%08x' % x, \
+					        stack.Mem))
 					lastMem = list(stack.Mem)
 				
 				print '' # newline
@@ -140,10 +149,12 @@ class Debuggable:
 		kernel32.CloseHandle(hThread)
 		
 		# return the Xmm registers and memory registers
-		return ''.join(map(lambda x: struct.pack('L', x), list(context.Xmm) + list(stack.Mem)))
+		return ''.join(map(lambda x: struct.pack('L', x), \
+		        list(context.Xmm) + list(stack.Mem)))
 	
 	def debug(self):
-		# disasm the machine code, to obtain each instruction so we can place a while(1) between them
+		# disasm the machine code, to obtain each instruction
+		# so we can place a while(1) between them
 		buf = '' ; offset = 0 ; addr = {}
 		while offset != len(self.machine_code):
 			instr = distorm3.Decompose(None, self.machine_code[offset:])[0]
@@ -162,13 +173,15 @@ class Debuggable:
 				
 				# align to 16 bytes and write the m128 (including jmp over it)
 				# 32 bytes = 30 bytes align + 2 bytes short jmp
-				buf += '90'*(30 - (len(buf)/2 % 16)) + 'eb10' + m128.encode('hex')
+				buf += '90'*(30 - (len(buf)/2 % 16)) + \
+				        'eb10' + m128.encode('hex')
 				
 				# write this addr in our dictionary
 				addr[0xfed0000+offset+jmp_len-16] = self.code + len(buf)/2 - 16
 				
 				# keep a dictionary with address -> m128
-				self.m128s[0xfed0000+offset+jmp_len-16] = struct.unpack('LLLL', m128)
+				self.m128s[0xfed0000+offset+jmp_len-16] = \
+				        struct.unpack('4L', m128)
 				
 				offset += jmp_len
 			# normal and sse instructions are followed by a while(1) loop
@@ -178,20 +191,25 @@ class Debuggable:
 				# if referenced, display m128 as well
 				m128 = ''
 				if instr.operands[1].type == distorm3.OPERAND_ABSOLUTE_ADDRESS:
-					m128 = '\nm128  ' + ' '.join(map(lambda x: '0x%08x' % x, self.m128s[instr.operands[1].disp]))
+					m128 = '\nm128  ' + ' '.join(map(lambda x: '0x%08x' % x, \
+					        self.m128s[instr.operands[1].disp]))
 				
 				self.instructions.append(str(instr).lower() + m128)
 		
 		# replace all old addresses with new addresses, using a sortof bad way
 		for key, value in addr.items():
-			buf = buf.replace(struct.pack('L', key).encode('hex'), struct.pack('L', value).encode('hex'))
+			buf = buf.replace(struct.pack('L', key).encode('hex'), \
+			        struct.pack('L', value).encode('hex'))
 		
-		# exit the thread after a last while(1) loop, to get the final xmm registers
+		# exit the thread after a last while(1) loop,
+		# to get the final xmm registers
 		buf += 'ebfec3'
 		
 		return self._run(buf.decode('hex'), True)
 	
 	def run(self):
-		# i hope for the sake of simplicity that 0xfed is quite unlikely, in normal assembly..
-		code = self.machine_code.replace(struct.pack('H', 0xfed), struct.pack('H', self.code >> 16))
+		# i hope for the sake of simplicity that 0xfed is
+		# quite unlikely, in normal assembly..
+		code = self.machine_code.replace(struct.pack('H', 0xfed), \
+		        struct.pack('H', self.code >> 16))
 		return self._run(code + '\xeb\xfe\xc3')

@@ -1,8 +1,10 @@
 import sys, binascii, assemble, distorm3
-from distorm3 import OPERAND_REGISTER, OPERAND_IMMEDIATE, OPERAND_MEMORY, OPERAND_ABSOLUTE_ADDRESS
+from distorm3 import OPERAND_REGISTER, OPERAND_IMMEDIATE, OPERAND_MEMORY, \
+        OPERAND_ABSOLUTE_ADDRESS
 
 def enc_apply(hex):
-	return Enc(distorm3.Decompose(0, hex.decode('hex'), distorm3.Decode32Bits)[0]).encode()
+    dec = distorm3.Decompose(0, hex.decode('hex'), distorm3.Decode32Bits)
+    return Enc(dec[0]).encode()
 
 class Enc:
 	_labels = {}
@@ -49,7 +51,8 @@ class Enc:
 	
 	def encode(self):
 		func = getattr(self, '_encode_' + self.dis.mnemonic.lower(), None)
-		if not func: raise Exception('Cannot encode %s' % self.dis.mnemonic.lower())
+		if not func:
+		    raise Exception('Cannot encode %s' % self.dis.mnemonic.lower())
 		func()
 		return self.lines
 	
@@ -62,7 +65,8 @@ class Enc:
 		if str(val) not in Enc._labels:
 			self.lines.append('jmp m128_%d_end' % len(Enc._labels))
 			self.lines.append('align 16, db 0')
-			self.lines.append('m128_%d: ' % len(Enc._labels) + 'dd 0x%08x, 0x%08x, 0x%08x, 0x%08x' % tuple(val))
+			self.lines.append('m128_%d: ' % len(Enc._labels) + \
+			        'dd 0x%08x, 0x%08x, 0x%08x, 0x%08x' % tuple(val))
 			self.lines.append('m128_%d_end:' % len(Enc._labels))
 			Enc._labels[str(val)] = 'dqword [m128_%d]' % len(Enc._labels)
 		return Enc._labels[str(val)]
@@ -77,13 +81,15 @@ class Enc:
 	def _m128_flag8(self, index, yes=0, no=0):
 		val = [no for i in range(8)]
 		val[index * 2] = yes
-		return self._m128([(val[i] + (val[i+1] << 16)) for i in xrange(0, 8, 2)])
+		val = [(val[i] + (val[i+1] << 16)) for i in xrange(0, 8, 2)]
+		return self._m128(val)
 	
 	# construct a 16byte xmm value from 16 bytes
 	def _m128_flag16(self, index, yes=0, no=0):
 		val = [no for i in range(16)]
 		val[index * 4] = yes
-		return self._m128([reduce(lambda x, y: x * 256 + y, val[i:i+4][::-1]) for i in xrange(0, 16, 4)])
+		return self._m128([reduce(lambda x, y: x * 256 + y, val[i:i+4][::-1]) \
+		        for i in xrange(0, 16, 4)])
 	
 	def _m128_flagsize(self, index, yes=0, no=0, size=32):
 		if size == 32:   return self._m128_flag4(index, yes, no)
@@ -96,50 +102,67 @@ class Enc:
 		flags[index & 3] = value & 3
 		return reduce(lambda x, y: x * 4 + y, flags)
 	
-	# read a 8bit, 16bit or 32bit integer from a memory address, optionally give it a special position
+	# read a 8bit, 16bit or 32bit integer from a memory address
+	# optionally give it a special position
 	def _read_mem(self, reg, addr, size=32, position=0):
 		self.lines.append('movss xmm%d, [0x%x]' % (reg, addr))
 		if size != 32:
-			self.lines.append('pand xmm%d, %s' % (reg, self._m128([self._ff_flag[size], 0, 0, 0])))
+			self.lines.append('pand xmm%d, %s' % (reg, \
+			        self._m128([self._ff_flag[size], 0, 0, 0])))
 		if position != 0:
-			self.lines.append('pshufd xmm%d, xmm%d, %d' % (reg, reg, self._flag_pshufd(position, 0)))
+			self.lines.append('pshufd xmm%d, xmm%d, %d' % (reg, reg, \
+			        self._flag_pshufd(position, 0)))
 	
 	# write a 8bit, 16bit or 32bit value to an address
 	def _write_mem(self, addr, value, tmp_reg=3, size=32, position=0):
 		if size != 32:
 			self._read_mem(tmp_reg, addr, position=position)
-			self.lines.append('pand xmm%d, %s' % (tmp_reg, self._m128_flag4(position, -self._ff_flag[size], self._ff_flag[32])))
+			self.lines.append('pand xmm%d, %s' % (tmp_reg, \
+			        self._m128_flag4(position, -self._ff_flag[size], \
+			        self._ff_flag[32])))
 		else:
 			self.lines.append('pxor xmm%d, xmm%d' % (tmp_reg, tmp_reg))
-		self.lines.append('pxor xmm%d, %s' % (tmp_reg, self._m128_flag4(position, yes=value)))
+		self.lines.append('pxor xmm%d, %s' % (tmp_reg, \
+		        self._m128_flag4(position, yes=value)))
 		if position != 0:
-			self.lines.append('pshufd xmm%d, xmm%d, %d' % (tmp_reg, tmp_reg, self._flag_pshufd(0, position)))
+			self.lines.append('pshufd xmm%d, xmm%d, %d' % (tmp_reg, tmp_reg, \
+			        self._flag_pshufd(0, position)))
 		self.lines.append('movss [0x%x], xmm%d' % tmp_reg)
 	
-	# read a [8, 16, 32] bit "emulated" gpr to the given xmm register's low 32bits
+	# read a [8, 16, 32] bit "emulated" gpr to the
+	# given xmm register's low 32bits
 	def _read_emugpr_xmm(self, gpr, xmm=0, size=32):
 		# TODO: 8/16bit support
 		
-		self.lines.append('pshufd xmm%d, %s, %d' % (xmm, self._xmm_gpr_index(gpr), self._flag_pshufd(3, gpr & 3)))
+		self.lines.append('pshufd xmm%d, %s, %d' % (xmm, \
+		        self._xmm_gpr_index(gpr), self._flag_pshufd(3, gpr & 3)))
 		if size == 8:
-			self.lines.append('pand xmm%d, %s' % (xmm, self._m128_flag16(0, yes=self._ff_flag[size])))
+			self.lines.append('pand xmm%d, %s' % (xmm, \
+			        self._m128_flag16(0, yes=self._ff_flag[size])))
 		elif size == 16:
-			self.lines.append('pand xmm%d, %s' % (xmm, self._m128_flag8(0, yes=self._ff_flag[size])))
+			self.lines.append('pand xmm%d, %s' % (xmm, \
+			        self._m128_flag8(0, yes=self._ff_flag[size])))
 		elif size == 32:
-			self.lines.append('pand xmm%d, %s' % (xmm, self._m128_flag4(0, yes=self._ff_flag[size])))
+			self.lines.append('pand xmm%d, %s' % (xmm, self._m128_flag4(0, \
+			        yes=self._ff_flag[size])))
 	
-	# write a [8, 16, 32] bit "emulated" gpr to the given xmm register's low 32bits
+	# write a [8, 16, 32] bit "emulated" gpr to the
+	# given xmm register's low 32bits
 	def _write_emugpr_xmm(self, gpr, xmm=0, size=32):
 		# TODO: 8/16bit support
 		
 		# zero the register out
-		self.lines.append('pand %s, %s' % (self._xmm_gpr_index(gpr), self._m128_flagsize(gpr & 3, no=self._ff_flag[size], size=size)))
+		self.lines.append('pand %s, %s' % (self._xmm_gpr_index(gpr), \
+		        self._m128_flagsize(gpr & 3, no=self._ff_flag[size], \
+		        size=size)))
 		
 		# make sure the value is in the correct dword
-		if gpr & 3: self.lines.append('pshufd xmm%d, xmm%d, %d' % (xmm, xmm, self._flag_pshufd(gpr & 3, 0)))
+		if gpr & 3: self.lines.append('pshufd xmm%d, xmm%d, %d' % (xmm, xmm, \
+		        self._flag_pshufd(gpr & 3, 0)))
 		
 		# zero everything out for the source operand
-		self.lines.append('pand xmm%d, %s' % (xmm, self._m128_flag4(gpr & 3, yes=self._ff_flag[size])))
+		self.lines.append('pand xmm%d, %s' % (xmm, \
+		        self._m128_flag4(gpr & 3, yes=self._ff_flag[size])))
 		
 		# write the new value
 		self.lines.append('por %s, xmm%d' % (self._xmm_gpr_index(gpr), xmm))
@@ -159,7 +182,8 @@ class Enc:
 	def _read_expr_mem(self, operand, xmm=0, size=32):
 		# TODO: 8/16bit support
 		
-		self.lines.append('movapd xmm%d, %s' % (xmm, self._m128([operand.disp, 0, 0, 0])))
+		self.lines.append('movapd xmm%d, %s' % (xmm, \
+		        self._m128([operand.disp, 0, 0, 0])))
 		if operand.base != None:
 			self._read_emugpr_xmm(operand.base & 7, 2, size)
 			self.lines.append('paddd xmm%d, xmm2' % xmm)
@@ -184,7 +208,8 @@ class Enc:
 		if op.type == OPERAND_REGISTER:
 			self._read_emugpr_xmm(op.index & 7, xmm=xmm, size=op.size)
 		elif op.type == OPERAND_IMMEDIATE:
-			self.lines.append('movapd xmm%d, %s' % (xmm, self._m128([op.value,0,0,0])))
+			self.lines.append('movapd xmm%d, %s' % (xmm, \
+			        self._m128([op.value, 0, 0, 0])))
 		elif op.type == OPERAND_ABSOLUTE_ADDRESS:
 			self._read_memory_xmm(op.disp, xmm=xmm, size=op.size)
 		elif op.type == OPERAND_MEMORY:
@@ -192,7 +217,8 @@ class Enc:
 			self.lines.append('movd eax, xmm%d' % xmm)
 			self.lines.append('movd xmm%d, dword [eax]' % xmm)
 			if op.size and op.size != 32:
-				self.lines.append('pand xmm%d, %s' % (xmm, self._m128([self._ff_flag[op.size], 0, 0, 0])))
+				self.lines.append('pand xmm%d, %s' % (xmm, \
+				        self._m128([self._ff_flag[op.size], 0, 0, 0])))
 	
 	def _write_value_xmm(self, operand, xmm=0):
 		op = self.dis.operands[operand]
