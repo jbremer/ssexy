@@ -187,31 +187,15 @@ class IMAGE_TLS_DIRECTORY32(Structure):
 
 def ctype_encode(obj):
     ret = []
+    if not hasattr(obj, '_fields_') return obj
     for name, field in obj._fields_:
         value = getattr(obj, name)
         if isinstance(value, Structure):
             ret.append({name: ctype_encode(value)})
-        # is it possible to find an even worse approach?
-        if '_length_' in dir(value):
+        if hasattr(value, '_length_'):
             ret.append({name: [ctype_encode(x) for x in value]})
         else:
             ret.append({name: value})
-    return ret
-
-def encode(obj):
-    ret = ''
-    for name, field in obj._fields_:
-        value = getattr(obj, name)
-        if isinstance(value, (Address, int, long)):
-            ret += struct.pack('L', int(value))
-        elif isinstance(value, str):
-            ret += value
-        else:
-            print value, type(value), type(type(value))
-            size = sizeof(value)
-            buf = create_string_buffer(size)
-            memmove(byref(buf), byref(value), size)
-            ret += buf[:size]
     return ret
 
 def roundup(num, align):
@@ -275,21 +259,50 @@ class Section:
     def __len__(self):
         return len(str(self))
 
+    def encode(self, obj, field=None, offset=0):
+        if isinstance(obj, Address):
+            return struct.pack('L', int(obj) + offset)
+
+        if isinstance(obj, Section):
+            # apply the offset so far
+            x.apply(virtual_offset=offset, raw_offset=offset)
+            ret = str(x)
+            x.unapply(virtual_offset=offset, raw_offset=offset)
+            return ret
+
+        if hasattr(field, '_length_'):
+            ret = ''
+            for x in obj:
+                tmp = self.encode(x, field._type_, offset)
+                offset += len(tmp)
+                ret += tmp
+            # append padding
+            return ret + '\x00' * (field._length_ - len(ret))
+
+        if isinstance(obj, str):
+            print type(obj), field
+            return obj
+
+        if hasattr(field, '_type_'):
+            return struct.pack(field._type_, obj)
+
+        if isinstance(obj, Structure):
+            ret = ''
+            for name, field in obj._fields_:
+                tmp = self.encode(getattr(obj, name), field, offset)
+                offset += len(tmp)
+                ret += tmp
+            return ret
+
+        print type(obj), offset, field
+        # else...
+        size = sizeof(field)
+        buf = create_string_buffer(size)
+        memmove(byref(buf), byref(obj), size)
+        return buf[:size]
+
     def __str__(self):
-        ret = ''
-        for x in self._buf:
-            if isinstance(x, Address):
-                ret += struct.pack('L', int(x))
-            elif isinstance(x, Section):
-                # apply the offset so far
-                x.apply(virtual_offset=len(ret), raw_offset=len(ret))
-                ret += str(x)
-                x.unapply(virtual_offset=len(ret), raw_offset=len(ret))
-            elif isinstance(x, Structure):
-                ret += encode(x)
-            else:
-                ret += x
-        return ret
+        return ''.join([self.encode(x) for x in self._buf])
 
 class Penis:
     def read(self, fname=None, raw=None):
@@ -298,7 +311,7 @@ class Penis:
 
     # relative virtual address to raw offset
     def rva2ro(self, rva):
-        for name, section in self.ImageSectionHeaders.items():
+        for section in self.ImageSectionHeaders:
             if rva >= section.VirtualAddress and rva < section.VirtualAddress + section.SizeOfRawData:
                 return rva - section.VirtualAddress + section.PointerToRawData
         raise Exception('Invalid Relative Virtual Address', hex(rva))
@@ -317,7 +330,7 @@ class Penis:
         print ctype_encode(self.ImageNtHeaders)
 
         # parse the Image Section Headers
-        self.ImageSectionHeaders = {}
+        self.ImageSectionHeaders = []
         for index in xrange(self.ImageNtHeaders.FileHeader.NumberOfSections):
             # extract the Image Section Header
             offset = self.ImageDosHeader.e_lfanew + sizeof(c_uint) + sizeof(IMAGE_FILE_HEADER) + self.ImageNtHeaders.FileHeader.SizeOfOptionalHeader
@@ -327,7 +340,7 @@ class Penis:
             ImageSectionHeader.raw = self.raw[ImageSectionHeader.PointerToRawData:ImageSectionHeader.PointerToRawData+ImageSectionHeader.SizeOfRawData]
 
             # add the header
-            self.ImageSectionHeaders[ImageSectionHeader.Name] = ImageSectionHeader
+            self.ImageSectionHeaders.append(ImageSectionHeader)
             print ctype_encode(ImageSectionHeader)
 
         # parse the Export Address Table
@@ -468,11 +481,6 @@ class Penis:
         return s
 
     def create(self, fname=True):
-        # first we have to prepare all sections
-
-        # create Import Address Table
-        iat = self._create_iat()
-
         # this buffer will contain the entire pe file
         buf = Section()
 
@@ -480,28 +488,51 @@ class Penis:
         buf += self.ImageDosHeader
 
         # copy the part between ImageNtHeaders and ImageDosHeader
-        buf += self.raw[sizeof(self.ImageDosHeader):self.ImageDosHeader.e_lfanew]
+        buf += self.raw[sizeof(self.ImageDosHeader):
+                self.ImageDosHeader.e_lfanew]
 
         # copy the ImageNtHeaders
         buf += self.ImageNtHeaders
 
-        # all sections
-        sections = sorted(self.ImageSectionHeaders.values(), key=lambda section: section.PointerToRawData)
-
-        # calculate size of all sections together, aligned nicely to the Section Alignment
-        size = sum([roundup(len(section.raw), self.ImageNtHeaders.OptionalHeader.SectionAlignment) for section in sections])
+        # calculate size of all sections together
+        # aligned nicely to the Section Alignment
+        size = sum([roundup(len(section.raw),
+                self.ImageNtHeaders.OptionalHeader.SectionAlignment)
+                for section in self.ImageSectionHeaders])
 
         # copy the ImageSectionHeaders
-        offset = self.ImageDosHeader.e_lfanew + sizeof(c_uint) + sizeof(IMAGE_FILE_HEADER) + self.ImageNtHeaders.FileHeader.SizeOfOptionalHeader
-        for section in sections: buf += section
+        offset = self.ImageDosHeader.e_lfanew + sizeof(c_uint) + \
+                sizeof(IMAGE_FILE_HEADER) + \
+                self.ImageNtHeaders.FileHeader.SizeOfOptionalHeader
 
-        offset = roundup(len(buf), self.ImageNtHeaders.OptionalHeader.FileAlignment)
+        # copy the headers of each section
+        for section in self.ImageSectionHeaders:
+            buf += section
+
+        offset = roundup(len(buf),
+                self.ImageNtHeaders.OptionalHeader.FileAlignment)
         buf += '\x00' * (offset - len(buf))
 
+        # create all data sections etc
+
+        # create Import Address Table
+        iat = self._create_iat()
+
+        # create Thread Local Storage
+
         # copy all sections
-        for section in self.ImageSectionHeaders.values():
+        relative_virtual_address = roundup(len(buf),
+                self.ImageNtHeaders.OptionalHeader.SectionAlignment)
+        for section in self.ImageSectionHeaders:
             section.PointerToRawData = len(buf)
-            buf += section.raw + '\x00' * (roundup(section.SizeOfRawData, self.ImageNtHeaders.OptionalHeader.SectionAlignment) - section.SizeOfRawData)
+            section.SizeOfRawData = len(section.raw)
+            section.VirtualAddress = relative_virtual_address
+            section.Misc.VirtualSize = roundup(section.SizeOfRawData,
+                    self.ImageNtHeaders.OptionalHeader.SectionAlignment)
+            relative_virtual_address += section.Misc.VirtualSize
+            buf += section.raw + '\x00' * (roundup(section.SizeOfRawData,
+                    self.ImageNtHeaders.OptionalHeader.FileAlignment) -
+                    section.SizeOfRawData)
 
         # write the contents to a file
         buf = str(buf)
@@ -520,7 +551,7 @@ if __name__ == '__main__':
     for dir in pe.ImageNtHeaders.OptionalHeader.DataDirectory:
         print 'datadir 0x%08x 0x%08x' % (dir.VirtualAddress, dir.Size)
 
-    for name, section in pe.ImageSectionHeaders.items():
+    for section in pe.ImageSectionHeaders:
         print 'section %-8s 0x%08x 0x%08x 0x%08x 0x%08x' % (section.Name, section.VirtualAddress, section.Misc.VirtualSize, section.PointerToRawData, section.SizeOfRawData)
 
     for entry in pe.ImportAddressTable:
