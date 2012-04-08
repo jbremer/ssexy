@@ -81,7 +81,8 @@ class IMAGE_OPTIONAL_HEADER(Structure):
         ('SizeOfHeapCommit', c_uint),
         ('LoaderFlags', c_uint),
         ('NumberOfRvaAndSizes', c_uint),
-        ('DataDirectory', IMAGE_DATA_DIRECTORY * IMAGE_NUMBEROF_DIRECTORY_ENTRIES),
+        ('DataDirectory',
+            IMAGE_DATA_DIRECTORY * IMAGE_NUMBEROF_DIRECTORY_ENTRIES),
     ]
 
 class IMAGE_NT_HEADERS(Structure):
@@ -187,7 +188,7 @@ class IMAGE_TLS_DIRECTORY32(Structure):
 
 def ctype_encode(obj):
     ret = []
-    if not hasattr(obj, '_fields_') return obj
+    if not hasattr(obj, '_fields_'): return obj
     for name, field in obj._fields_:
         value = getattr(obj, name)
         if isinstance(value, Structure):
@@ -280,7 +281,7 @@ class Section:
             return ret + '\x00' * (field._length_ - len(ret))
 
         if isinstance(obj, str):
-            print type(obj), field
+            #print 'instance', type(obj), field
             return obj
 
         if hasattr(field, '_type_'):
@@ -294,7 +295,7 @@ class Section:
                 ret += tmp
             return ret
 
-        print type(obj), offset, field
+        #print 'else', type(obj), offset, field
         # else...
         size = sizeof(field)
         buf = create_string_buffer(size)
@@ -312,7 +313,8 @@ class Penis:
     # relative virtual address to raw offset
     def rva2ro(self, rva):
         for section in self.ImageSectionHeaders:
-            if rva >= section.VirtualAddress and rva < section.VirtualAddress + section.SizeOfRawData:
+            if rva >= section.VirtualAddress and \
+                    rva < section.VirtualAddress + section.SizeOfRawData:
                 return rva - section.VirtualAddress + section.PointerToRawData
         raise Exception('Invalid Relative Virtual Address', hex(rva))
 
@@ -326,40 +328,45 @@ class Penis:
         print ctype_encode(self.ImageDosHeader)
 
         # parse Image Nt Headers
-        self.ImageNtHeaders = IMAGE_NT_HEADERS.from_buffer_copy(self.raw, self.ImageDosHeader.e_lfanew)
+        self.ImageNtHeaders = IMAGE_NT_HEADERS.from_buffer_copy(self.raw,
+                self.ImageDosHeader.e_lfanew)
         print ctype_encode(self.ImageNtHeaders)
 
         # parse the Image Section Headers
         self.ImageSectionHeaders = []
         for index in xrange(self.ImageNtHeaders.FileHeader.NumberOfSections):
             # extract the Image Section Header
-            offset = self.ImageDosHeader.e_lfanew + sizeof(c_uint) + sizeof(IMAGE_FILE_HEADER) + self.ImageNtHeaders.FileHeader.SizeOfOptionalHeader
-            ImageSectionHeader = IMAGE_SECTION_HEADER.from_buffer_copy(self.raw, offset + index * sizeof(IMAGE_SECTION_HEADER))
+            offset = self.ImageDosHeader.e_lfanew + sizeof(c_uint) + \
+                sizeof(IMAGE_FILE_HEADER) + \
+                self.ImageNtHeaders.FileHeader.SizeOfOptionalHeader
+            ImageSectionHeader = IMAGE_SECTION_HEADER.from_buffer_copy(self.raw,
+                    offset + index * sizeof(IMAGE_SECTION_HEADER))
 
             # extract the Data from the Header
-            ImageSectionHeader.raw = self.raw[ImageSectionHeader.PointerToRawData:ImageSectionHeader.PointerToRawData+ImageSectionHeader.SizeOfRawData]
+            ImageSectionHeader.raw = self.raw[
+                    ImageSectionHeader.PointerToRawData:
+                    ImageSectionHeader.PointerToRawData +
+                    ImageSectionHeader.SizeOfRawData]
 
             # add the header
             self.ImageSectionHeaders.append(ImageSectionHeader)
             print ctype_encode(ImageSectionHeader)
 
-        # parse the Export Address Table
-        # ExportAddressTableSection = self.ImageNtHeaders.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT]
-        # self.ExportAddressTable = []
-        # if ExportAddressTableSection.VirtualAddress and ExportAddressTableSection.Size:
-            # offsetImageExportDirectory = self.rva2ro(ExportAddressTableSection.VirtualAddress)
-            # ImageExportDirectory = IMAGE_EXPORT_DIRECTORY.from_buffer_copy(self.raw, offsetImageExportDirectory)
-            # for index in xrange(ImageExportDirectory.NumberOfNames):
-
         # parse the Import Address Table
-        ImportAddressTableSection = self.ImageNtHeaders.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT]
+        ImportAddressTableSection = \
+            self.ImageNtHeaders.OptionalHeader.DataDirectory[
+                    IMAGE_DIRECTORY_ENTRY_IMPORT]
         self.ImportAddressTable = []
-        if ImportAddressTableSection.VirtualAddress and ImportAddressTableSection.Size:
+        if ImportAddressTableSection.VirtualAddress and \
+                ImportAddressTableSection.Size:
             # find the address
-            offsetImageImportDescriptor = self.rva2ro(ImportAddressTableSection.VirtualAddress)
+            offsetImageImportDescriptor = self.rva2ro(
+                    ImportAddressTableSection.VirtualAddress)
             while True:
                 # extract the Image Import Descriptor
-                ImageImportDescriptor = IMAGE_IMPORT_DESCRIPTOR.from_buffer_copy(self.raw, offsetImageImportDescriptor)
+                ImageImportDescriptor = \
+                    IMAGE_IMPORT_DESCRIPTOR.from_buffer_copy(self.raw,
+                        offsetImageImportDescriptor)
                 offsetImageImportDescriptor += sizeof(IMAGE_IMPORT_DESCRIPTOR)
 
                 # last Image Import Descriptor ends with a zero-structure
@@ -371,7 +378,9 @@ class Penis:
 
                 # resolve thunkOut and thunkIn
                 thunkOut = self.rva2ro(ImageImportDescriptor.FirstThunk)
-                thunkIn = thunkOut if ImageImportDescriptor.OriginalFirstThunk == 0 else self.rva2ro(ImageImportDescriptor.OriginalFirstThunk)
+                thunkIn = thunkOut if \
+                    ImageImportDescriptor.OriginalFirstThunk == 0 else \
+                    self.rva2ro(ImageImportDescriptor.OriginalFirstThunk)
 
                 # check if all lookups were successful
                 if not library or not thunkOut or not thunkIn: break
@@ -380,7 +389,8 @@ class Penis:
                 thunkAddress = ImageImportDescriptor.FirstThunk
                 while True:
                     entry = ImportedFunction()
-                    thunk = IMAGE_THUNK_DATA32.from_buffer_copy(self.raw, thunkIn)
+                    thunk = IMAGE_THUNK_DATA32.from_buffer_copy(self.raw,
+                            thunkIn)
                     if thunk.Function == 0: break
 
                     # Import by Ordinal rather than Function Name
@@ -390,9 +400,11 @@ class Penis:
                     # Import by Function Name
                     else:
                         nameOffset = self.rva2ro(thunk.AddressOfData)
-                        importByName = IMAGE_IMPORT_BY_NAME.from_buffer_copy(self.raw, nameOffset)
+                        importByName = IMAGE_IMPORT_BY_NAME.from_buffer_copy(
+                                self.raw, nameOffset)
                         entry.ordinal = importByName.Hint
-                        entry.function = create_string_buffer(self.raw[nameOffset+2:]).value
+                        entry.function = create_string_buffer(
+                                self.raw[nameOffset+2:]).value
                     entry.thunk = thunkAddress
                     entry.library = library
 
@@ -403,25 +415,35 @@ class Penis:
                     thunkAddress += sizeof(IMAGE_THUNK_DATA32)
 
         # parse the Relocation Data
-        RelocationDataSection = self.ImageNtHeaders.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC]
+        RelocationDataSection = \
+            self.ImageNtHeaders.OptionalHeader.DataDirectory[
+                    IMAGE_DIRECTORY_ENTRY_BASERELOC]
         self.RelocationTable = []
         if RelocationDataSection.VirtualAddress and RelocationDataSection.Size:
-            offsetImageBaseRelocation = self.rva2ro(RelocationDataSection.VirtualAddress)
+            offsetImageBaseRelocation = \
+                self.rva2ro(RelocationDataSection.VirtualAddress)
             while True:
                 # extract Image Base Relocation object
-                ImageBaseRelocation = IMAGE_BASE_RELOCATION.from_buffer_copy(self.raw, offsetImageBaseRelocation)
+                ImageBaseRelocation = IMAGE_BASE_RELOCATION.from_buffer_copy(
+                        self.raw, offsetImageBaseRelocation)
                 if ImageBaseRelocation.SizeOfBlock == 0: break
 
-                offsetImageFixupEntry = offsetImageBaseRelocation + sizeof(IMAGE_BASE_RELOCATION)
-                countImageFixupEntry = (ImageBaseRelocation.SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(IMAGE_FIXUP_ENTRY)
+                offsetImageFixupEntry = offsetImageBaseRelocation + \
+                    sizeof(IMAGE_BASE_RELOCATION)
+                countImageFixupEntry = (ImageBaseRelocation.SizeOfBlock -
+                    sizeof(IMAGE_BASE_RELOCATION)) / sizeof(IMAGE_FIXUP_ENTRY)
 
                 # extract all Image Fixup Entries
-                entries = (IMAGE_FIXUP_ENTRY * countImageFixupEntry).from_buffer_copy(self.raw, offsetImageFixupEntry)
+                entries = (IMAGE_FIXUP_ENTRY * countImageFixupEntry). \
+                    from_buffer_copy(self.raw, offsetImageFixupEntry)
 
                 # add each entry
                 for entry in entries:
-                    if entry.Type != 3: raise Exception('Unknown Relocation Type', str(entry.Type))
-                    self.RelocationTable.append(ImageBaseRelocation.VirtualAddress + entry.Offset)
+                    if entry.Type != 3:
+                        raise Exception('Unknown Relocation Type',
+                                str(entry.Type))
+                    self.RelocationTable.append(
+                            ImageBaseRelocation.VirtualAddress + entry.Offset)
 
                 # next block
                 offsetImageBaseRelocation += ImageBaseRelocation.SizeOfBlock
@@ -430,14 +452,20 @@ class Penis:
             self.RelocationTable.sort()
 
         # parse the Thread Local Storage info
-        ThreadLocalStorageSection = self.ImageNtHeaders.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_TLS]
+        ThreadLocalStorageSection = \
+            self.ImageNtHeaders.OptionalHeader.DataDirectory[
+                    IMAGE_DIRECTORY_ENTRY_TLS]
         self.ThreadLocalStorageCallbacks = []
-        if ThreadLocalStorageSection.VirtualAddress and ThreadLocalStorageSection.Size:
-            offsetImageTlsDirectory = self.rva2ro(ThreadLocalStorageSection.VirtualAddress)
-            ImageTlsDirectory = IMAGE_TLS_DIRECTORY32.from_buffer_copy(self.raw, offsetImageTlsDirectory)
+        if ThreadLocalStorageSection.VirtualAddress and \
+                ThreadLocalStorageSection.Size:
+            offsetImageTlsDirectory = self.rva2ro(
+                    ThreadLocalStorageSection.VirtualAddress)
+            ImageTlsDirectory = IMAGE_TLS_DIRECTORY32.from_buffer_copy(
+                    self.raw, offsetImageTlsDirectory)
             offsetCallback = self.va2ro(ImageTlsDirectory.AddressOfCallBacks)
             while True:
-                callback = c_uint.from_buffer_copy(self.raw, offsetCallback).value
+                callback = c_uint.from_buffer_copy(self.raw,
+                        offsetCallback).value
                 if callback == 0: break
 
                 self.ThreadLocalStorageCallbacks.append(callback)
@@ -450,17 +478,20 @@ class Penis:
         entries = Section()
         thunks = Section()
 
-        libraries = sorted(set([entry.library for entry in self.ImportAddressTable]))
+        libraries = sorted(set([entry.library for entry in
+            self.ImportAddressTable]))
         for library in libraries:
             ImageImportDescriptor = IMAGE_IMPORT_DESCRIPTOR()
-            ImageImportDescriptor.OriginalFirstThunk = s.rva(Address(len(entries)))
+            ImageImportDescriptor.OriginalFirstThunk = \
+                s.rva(Address(len(entries)))
             ImageImportDescriptor.TimeDateStamp = 0
             ImageImportDescriptor.ForwarderChain = -1
             ImageImportDescriptor.Name = s.rva(Address(len(names)))
             names += entry.library + '\x00'
             s += ImageImportDescriptor
 
-            for entry in filter(lambda x: x.library == library, self.ImportAddressTable):
+            for entry in filter(lambda x: x.library == library,
+                    self.ImportAddressTable):
                 ImageImportByName = IMAGE_IMPORT_BY_NAME()
                 ImageImportByName.Hint = 0
                 names += ImageImportByName
@@ -522,7 +553,7 @@ class Penis:
 
         # copy all sections
         relative_virtual_address = roundup(len(buf),
-                self.ImageNtHeaders.OptionalHeader.SectionAlignment)
+            self.ImageNtHeaders.OptionalHeader.SectionAlignment)
         for section in self.ImageSectionHeaders:
             section.PointerToRawData = len(buf)
             section.SizeOfRawData = len(section.raw)
@@ -540,6 +571,8 @@ class Penis:
         return buf
 
 if __name__ == '__main__':
+    # set a default parameter..
+    sys.argv = (sys.argv[0], 'yasm.exe')
     if len(sys.argv) == 1:
         print 'Usage: %s <filename>' % sys.argv[0]
         exit(0)
@@ -552,10 +585,13 @@ if __name__ == '__main__':
         print 'datadir 0x%08x 0x%08x' % (dir.VirtualAddress, dir.Size)
 
     for section in pe.ImageSectionHeaders:
-        print 'section %-8s 0x%08x 0x%08x 0x%08x 0x%08x' % (section.Name, section.VirtualAddress, section.Misc.VirtualSize, section.PointerToRawData, section.SizeOfRawData)
+        print 'section %-8s 0x%08x 0x%08x 0x%08x 0x%08x' % (section.Name,
+                section.VirtualAddress, section.Misc.VirtualSize,
+                section.PointerToRawData, section.SizeOfRawData)
 
     for entry in pe.ImportAddressTable:
-        print 'iat %s %d %s 0x%08x' % (entry.library, entry.ordinal, entry.function, entry.thunk)
+        print 'iat %s %d %s 0x%08x' % (entry.library, entry.ordinal,
+                entry.function, entry.thunk)
 
     for x in pe.RelocationTable:
         print 'reloc 0x%08x' % x
@@ -563,4 +599,4 @@ if __name__ == '__main__':
     for cb in pe.ThreadLocalStorageCallbacks:
         print 'tls 0x%08x' % cb
 
-    pe.create(sys.argv[1].replace('exe', 'out.exe'))
+    pe.create(sys.argv[1].replace('.exe', '.out.exe'))
