@@ -1,0 +1,114 @@
+SSEXY   (C) jbremer, Jurriaan Bremer 2012
+
+    Introduction
+
+An executable binary consists of code, data and some extra information. Take
+for example `cat', `cat' takes filenames as parameters on the cli, reads them
+entirely and prints everything to stdout. `cat' consists of a single file, this
+file tells the `loader' which data to load on which memory address etc.
+Every binary references data besides the actual code, such as lookup tables,
+strings etc. The code is where my tool, SSEXY, comes in to play.
+
+Code, in executable binaries, consist of a bunch of assembly instructions. Over
+the past few decades people have been Reverse Engineering binaries (that is, the
+assembly instructions) to understand how they work and in some cases to find
+vulnerabilities.
+Much research has been done in the field of obfuscation of these executable
+binaries, in order to make it harder for a 3rd party to analyze the binaries,
+today I would like to present a relatively new method. Even though I am pretty
+sure that several people have thought about the obfuscation used in this
+research, nobody has used it on a "large" scale, that is, an entire binary.
+
+    What is SSE
+
+SSE is an acronym for "Streaming SIMD Extensions", SIMD being "Single
+Instruction, Multiple Data". Basically SSE is an extra Instruction Set on top of
+the "regular" x86 instructions, it was made for vector math, to enhance speed in
+3D gaming engines etc, although it can (obviously) be used for anything.
+
+So what does this mean? There are more instructions than used in regular
+binaries, this means that, as it is barely used, people are unfamiliar with the
+SSE instruction set. We can use this to our advantage by transforming regular
+instructions to an equivalent in SSE, therefore obfuscating the execution flow.
+
+Note: Since some of the SSE instruction sets are relatively new (4.1, 4.2 and
+5.0) they might not work on somewhat older CPUs, hence I only use instructions
+from SSE, SSE2 and SSE3, which will hopefully work on most PCs floating around
+the world nowadays.
+
+    How does SSE work
+
+SSE introduces dozens of new instructions to the existing x86 instruction set,
+fortunately for me there are many semi-overlapping instructions (ie: there is an
+add instruction in both x86 and SSE.) Due to this, almost all x86 instructions
+can be translated into their SSE equivalent without too much work.
+
+One could see SSE as a complete instruction set on it's own, if you omit a few
+key features (such as branching.) This also means that SSE instructions operate
+on their own registers, SSE has 8 XMM register and the best part of this is,
+they are 128bit (16 bytes) in length. That's right, we can store four 32bit
+integers in just one XMM register, I take advantage of this, as you will see
+later on.
+
+Other than that, SSE also has a few instructions to "communicate" with "normal
+x86 instructions", for example one can load the lowest 32bits of an XMM register
+from a GPR (General Purpose Register, x86's registers) and store the lowest
+32bits of an XMM register into a GPR. Besides that the entire 128bits can be
+stored to / loaded from an address that you can specify with GPRs.
+
+    What does SSEify do
+
+So this SSEify tool translates "regular" x86 assembly into SSE instructions, but
+how does that work? As you might know there are 8 GPRs, these are 32bit
+registers that store stuff like intermediate values, stack pointers, return
+values etc etc. But that's nice, 8 registers * 32 bits = 256 bits, this means
+we can store all GPRs in just two XMM registers. So basically we emulate the
+"normal" x86 instructions using SSE instructions.
+
+Storing the GPRs as 32bit integers in XMM registers means that for every opcode
+we will have to extract the values from the XMM registers and operate on them
+from there, this gives us quite some overhead, but then again, this tool is not
+made to decrease speed in execution time in existing binaries.
+
+There are a few pitfalls, but almost all commonly (!) used instructions are
+relatively easy to implement in SSE. For example, a lot of x86 instructions
+(such as addition and subtracting instructions) set conditional flags which can
+be used to jump somewhere else in the code, this is a bit harder to emulate in
+SSE, but still doable.
+
+    Testing
+
+Unfortunately I did not have enough time, yet, to finish the initial version
+completely for a few reasons (ie: since I manually edit PE files, that is
+.exe's, I also have to implement an entire library to work with these files, as
+I have not seen an existing library capable of doing that.)
+
+Anyhow, I suspect a few things:
+1) Static Analyzers will break: they, most likely, lack support for SSE
+    instructions
+2) Reverse Engineers will have headaches: "new" instruction set, there are no
+    tools to automate processing it *yet* (see point 1)
+3) Anti-Virus engines will fail: They can't do static analysis, although I
+    assume/hope that runtime analysis will still work
+
+    Ideas
+
+There are many features one could come up with after finishing the initial
+version of this tool.
+- Optimalizing instruction implementations (reducing amount of SSE instructions
+    needed per x86 instruction)
+- Shuffling the GPRs stored in XMM registers to obfuscate a bit
+- Simple "encryption" of the GPRs stored in XMM registers (or even using
+    different encryption keys depending on the function we are currently in,
+    function as in a function in the C programming language)
+- Combining several x86 instructions into a series of SSE instructions
+- ... Whatever floats your boat ...
+
+    Conclusion
+
+I have proposed a relatively new way to obfuscate existing binaries and,
+hopefully, a new way to fool Reverse Engineers, static analyzers and Anti Virus
+engines. Overall it's an interesting approach and it will show the Reverse
+Engineering community that "the battle" will never stop, hehe.
+
+Jurriaan Bremer, jbremer, jurriaanbremer@gmail.com
