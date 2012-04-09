@@ -175,9 +175,11 @@ class IMAGE_IMPORT_BY_NAME(Structure):
     ]
 
 class ImportedFunction:
-    def __init__(self, library, function=None):
+    def __init__(self, library=None, function=None, ordinal=None, thunk=None):
         self.library = library
         self.function = function
+        self.ordinal = ordinal
+        self.thunk = thunk
 
 class IMAGE_BASE_RELOCATION(Structure):
     _fields_ = [
@@ -337,6 +339,7 @@ class Penis:
 
     # relative virtual address to raw offset
     def rva2ro(self, rva):
+        if isinstance(rva, Address): rva = rva.value
         for section in self.ImageSectionHeaders:
             if rva >= section.VirtualAddress and \
                     rva < section.VirtualAddress + section.SizeOfRawData:
@@ -377,26 +380,25 @@ class Penis:
                 if not library or not thunkOut or not thunkIn: break
 
                 # thunk address of each Imported API
-                thunkAddress = ImageImportDescriptor.FirstThunk
+                thunkAddress = ImageImportDescriptor.FirstThunk.value
                 while True:
-                    entry = ImportedFunction(library)
                     thunk = IMAGE_THUNK_DATA32.from_buffer_copy(self.raw,
                         thunkIn)
                     if thunk.Function == 0: break
 
                     # Import by Ordinal rather than Function Name
                     if thunk.Ordinal & IMAGE_ORDINAL_FLAG32:
-                        entry.ordinal = thunk.Ordinal & 0xffff
-                        entry.function = None
+                        entry = ImportedFunction(ordinal=thunk.Ordinal & 0xffff)
                     # Import by Function Name
                     else:
                         nameOffset = self.rva2ro(thunk.AddressOfData)
                         importByName = IMAGE_IMPORT_BY_NAME.from_buffer_copy(
                             self.raw, nameOffset)
-                        entry.ordinal = importByName.Hint
-                        entry.function = create_string_buffer(
-                            self.raw[nameOffset+2:]).value
+                        entry = ImportedFunction(ordinal=importByName.Hint,
+                            function=create_string_buffer(
+                                self.raw[nameOffset+2:]).value)
                     entry.thunk = thunkAddress
+                    entry.library = library
 
                     # add this entry
                     self.ImportAddressTable.append(entry)
@@ -504,7 +506,14 @@ class Penis:
 
     # returns a section object
     def createImportAddressTable(self):
+        # the section that will occur in the binary
         iat_section = Section()
+
+        # each function with library, function name and thunk address (as
+        # Address object)
+        self.thunks = []
+
+        # helper sections
         library_names_section = Section()
         thunks_section = Section()
         function_names_section = Section()
@@ -530,6 +539,11 @@ class Penis:
                     Address(len(function_names_section))
                 function_names_section.pointer(ImageThunkData,
                     field='AddressOfData')
+                self.thunks.append(ImportedFunction(library=library,
+                    function=entry.function,
+                    thunk=Address(len(thunks_section))))
+                # Thunks will be updated automatically.
+                thunks_section.pointer(self.thunks[-1], field='thunk')
                 thunks_section += ImageThunkData
                 ImageImportByName = IMAGE_IMPORT_BY_NAME()
                 ImageImportByName.Hint = 0
@@ -557,7 +571,7 @@ class Penis:
         # return the section
         return iat_section
 
-    def createTreadLocalStorage(self):
+    def createThreadLocalStorage(self):
         return Section()
 
     def createResourceData(self):
@@ -608,7 +622,7 @@ class Penis:
             self.ImageNtHeaders.FileHeader.SizeOfOptionalHeader
 
         # copy the headers of each section
-        for name, section in section_headers.values():
+        for name, section in section_headers.items():
             SectionHeader = IMAGE_SECTION_HEADER()
             SectionHeader.Name = name
             #SectionHeader.
@@ -682,8 +696,10 @@ if __name__ == '__main__':
             ImportedFunction('aup', 'lol'), ImportedFunction('aup2', 'omg'),
             ImportedFunction('aup', 'rofl'), ImportedFunction('aup', 'w00t')
     ]
-    print str(s.createImportAddressTable().offset(0x1000))
-    exit(0)
+    assert hash(str(s.createImportAddressTable().offset(0x1000))) == -1707067736
+    assert [(x.library, x.function, int(x.thunk)) for x in
+        s.thunks] == [('aup', 'lol', 0x1045), ('aup', 'rofl', 0x1049), ('aup',
+            'w00t', 0x104d), ('aup2', 'omg', 0x1055)]
 
     pe = Penis()
     pe.read(sys.argv[1])
