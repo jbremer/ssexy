@@ -53,7 +53,7 @@ class IMAGE_FILE_HEADER(Structure):
 
 class IMAGE_DATA_DIRECTORY(Structure):
     _fields_ = [
-        ('VirtualAddress', c_uint),
+        ('VirtualAddress', Address),
         ('Size', c_uint)
     ]
 
@@ -71,9 +71,9 @@ class IMAGE_OPTIONAL_HEADER(Structure):
         ('SizeOfCode', c_uint),
         ('SizeOfInitializedData', c_uint),
         ('SizeOfUninitializedData', c_uint),
-        ('AddressOfEntryPoint', c_uint),
-        ('BaseOfCode', c_uint),
-        ('BaseOfData', c_uint),
+        ('AddressOfEntryPoint', Address),
+        ('BaseOfCode', Address),
+        ('BaseOfData', Address),
         ('ImageBase', c_uint),
         ('SectionAlignment', c_uint),
         ('FileAlignment', c_uint),
@@ -110,7 +110,7 @@ IMAGE_SIZEOF_SHORT_NAME = 8
 
 class IMAGE_SECTION_HEADER_Misc(Union):
     _fields_ = [
-        ('PhysicalAddress', c_uint),
+        ('PhysicalAddress', Address),
         ('VirtualSize', c_uint)
     ]
 
@@ -118,9 +118,9 @@ class IMAGE_SECTION_HEADER(Structure):
     _fields_ = [
         ('Name', c_char * 8),
         ('Misc', IMAGE_SECTION_HEADER_Misc),
-        ('VirtualAddress', c_uint),
+        ('VirtualAddress', Address),
         ('SizeOfRawData', c_uint),
-        ('PointerToRawData', c_uint),
+        ('PointerToRawData', Address),
         ('PointerToRelocations', c_uint),
         ('PointerToLinenumbers', c_uint),
         ('NumberOfRelocations', c_short),
@@ -134,13 +134,13 @@ class IMAGE_EXPORT_DIRECTORY(Structure):
         ('TimeDateStamp', c_uint),
         ('MajorVersion', c_short),
         ('MinorVersion', c_short),
-        ('Name', c_uint),
+        ('Name', Address),
         ('Base', c_uint),
         ('NumberOfFunctions', c_uint),
         ('NumberOfNames', c_uint),
-        ('AddressOfFunctions', c_uint),
-        ('AddressOfNames', c_uint),
-        ('AddressOfNameOrdinals', c_uint)
+        ('AddressOfFunctions', Address),
+        ('AddressOfNames', Address),
+        ('AddressOfNameOrdinals', Address)
     ]
 
 class IMAGE_IMPORT_DESCRIPTOR_Union(Union):
@@ -183,7 +183,7 @@ class ImportedFunction:
 
 class IMAGE_BASE_RELOCATION(Structure):
     _fields_ = [
-        ('VirtualAddress', c_uint),
+        ('VirtualAddress', Address),
         ('SizeOfBlock', c_uint)
     ]
 
@@ -196,10 +196,10 @@ class IMAGE_FIXUP_ENTRY(Structure):
 
 class IMAGE_TLS_DIRECTORY32(Structure):
     _fields_ = [
-        ('StartAddressOfRawData', c_uint),
-        ('EndAddressOfRawData', c_uint),
-        ('AddressOfIndex', c_uint),
-        ('AddressOfCallBacks', c_uint),
+        ('StartAddressOfRawData', Address),
+        ('EndAddressOfRawData', Address),
+        ('AddressOfIndex', Address),
+        ('AddressOfCallBacks', Address),
         ('SizeOfZeroFill', c_uint),
         ('Characteristics', c_uint)
     ]
@@ -341,9 +341,10 @@ class Penis:
     def rva2ro(self, rva):
         if isinstance(rva, Address): rva = rva.value
         for section in self.ImageSectionHeaders:
-            if rva >= section.VirtualAddress and \
-                    rva < section.VirtualAddress + section.SizeOfRawData:
-                return rva - section.VirtualAddress + section.PointerToRawData
+            if rva >= section.VirtualAddress.value and \
+                    rva < section.VirtualAddress.value + section.SizeOfRawData:
+                return rva - section.VirtualAddress.value + \
+                        section.PointerToRawData.value
         raise Exception('Invalid Relative Virtual Address', hex(rva))
 
     # virtual address to raw offset
@@ -478,8 +479,8 @@ class Penis:
 
             # extract the Data from the Header
             ImageSectionHeader.raw = self.raw[
-                ImageSectionHeader.PointerToRawData :
-                ImageSectionHeader.PointerToRawData +
+                ImageSectionHeader.PointerToRawData.value :
+                ImageSectionHeader.PointerToRawData.value +
                 ImageSectionHeader.SizeOfRawData]
 
             # add the header
