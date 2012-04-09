@@ -166,7 +166,7 @@ class IMAGE_THUNK_DATA32(Union):
         ('ForwarderString', c_uint),
         ('Function', c_uint),
         ('Ordinal', c_uint),
-        ('AddressOfData', c_uint)
+        ('AddressOfData', Address)
     ]
 
 class IMAGE_IMPORT_BY_NAME(Structure):
@@ -239,23 +239,29 @@ class Section:
 
     def _offset_apply(self, offset):
         # process all our pointers
-        for pointer in self._pointer:
-            pointer.offset(offset)
+        for obj, field in self._pointer:
+            if isinstance(obj, Address):
+                obj.offset(offset)
+            elif isinstance(obj, Section):
+                obj._offset_apply(offset)
+            else:
+                # the attribute should support the offset() function call
+                # thereby we demand it's an Address() object.
+                getattr(obj, field).offset(offset)
 
-        # process pointers in children
-        for child in self._child:
-            if isinstance(child, Section):
-                child._offset_apply(offset)
+        # process pointers in children (we don't need this, if I'm not mistaken)
+        #for child in self._child:
+        #    if isinstance(child, Section):
+        #        child._offset_apply(offset)
 
     def offset(self, offset):
         """Apply an offset to all pointers from this Section."""
         self._offset_apply(offset)
         return self
 
-    def pointer(self, addr):#obj, field=None):
+    def pointer(self, addr, field=None):
         """When this Section's offset is updated, also update this Address."""
-        #length = len(obj) if isinstance(obj, Section) else 0
-        self._pointer.append(addr)#[addr, field, length])
+        self._pointer.append([addr, field])
         return addr
 
     def __iadd__(self, other):
@@ -504,26 +510,26 @@ class Penis:
         function_names_section = Section()
 
         # each library name, TODO lowercase?
-        libraries = sorted(set([entry.library for entry in
-            self.ImportAddressTable]))
-
-        for library in libraries:
+        for library in sorted(set([entry.library for entry in
+                self.ImportAddressTable])):
             ImageImportDescriptor = IMAGE_IMPORT_DESCRIPTOR()
             ImageImportDescriptor.OriginalFirstThunk = 0
-            addr = Address(len(thunks_section))
-            ImageImportDescriptor.FirstThunk = thunks_section.pointer(addr)
+            ImageImportDescriptor.FirstThunk = Address(len(thunks_section))
+            thunks_section.pointer(ImageImportDescriptor, field='FirstThunk')
             ImageImportDescriptor.TimeDateStamp = 0
             ImageImportDescriptor.ForwarderChain = -1
             ImageImportDescriptor.Name = len(library_names_section)
-            library_names_section.pointer(ImageImportDescriptor.Name)
-            library_names_section += entry.library + '\x00'
+            library_names_section.pointer(ImageImportDescriptor, field='Name')
+            library_names_section += library + '\x00'
             iat_section += ImageImportDescriptor
 
             for entry in filter(lambda x: x.library == library,
                     self.ImportAddressTable):
                 ImageThunkData = IMAGE_THUNK_DATA32()
-                ImageThunkData.AddressOfData = thunks_section.pointer(
-                    Address(len(function_names_section)))
+                ImageThunkData.AddressOfData = \
+                    Address(len(function_names_section))
+                function_names_section.pointer(ImageThunkData,
+                    field='AddressOfData')
                 thunks_section += ImageThunkData
                 ImageImportByName = IMAGE_IMPORT_BY_NAME()
                 ImageImportByName.Hint = 0
@@ -676,7 +682,7 @@ if __name__ == '__main__':
             ImportedFunction('aup', 'lol'), ImportedFunction('aup2', 'omg'),
             ImportedFunction('aup', 'rofl'), ImportedFunction('aup', 'w00t')
     ]
-    print str(s.createImportAddressTable().offset(0x5000))
+    print str(s.createImportAddressTable().offset(0x1000))
     exit(0)
 
     pe = Penis()
