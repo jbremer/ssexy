@@ -578,7 +578,7 @@ class Penis:
     def createResourceData(self):
         return Section()
 
-    def create(self, fname=True):
+    def create(self, fname=None):
         # this buffer will contain the entire pe file
         buf = Section()
 
