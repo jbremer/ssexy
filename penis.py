@@ -1,4 +1,4 @@
-import sys, struct
+import sys, struct, distorm3, collections
 from ctypes import *
 
 class Address(c_uint):
@@ -113,6 +113,11 @@ class IMAGE_SECTION_HEADER_Misc(Union):
         ('PhysicalAddress', Address),
         ('VirtualSize', c_uint)
     ]
+
+IMAGE_SCN_MEM_SHARED = 0x10000000
+IMAGE_SCN_MEM_EXECUTE = 0x20000000
+IMAGE_SCN_MEM_READ = 0x40000000
+IMAGE_SCN_MEM_WRITE = 0x80000000
 
 class IMAGE_SECTION_HEADER(Structure):
     _fields_ = [
@@ -341,15 +346,34 @@ class Penis:
     def rva2ro(self, rva):
         if isinstance(rva, Address): rva = rva.value
         for section in self.ImageSectionHeaders:
+            # this value has a Raw Offset
             if rva >= section.VirtualAddress.value and \
                     rva < section.VirtualAddress.value + section.SizeOfRawData:
                 return rva - section.VirtualAddress.value + \
                         section.PointerToRawData.value
+            # this value is in Virtual Memory, but *not* Raw Offset
+            elif rva >= section.VirtualAddress.value and \
+                    rva < section.VirtualAddress.value + \
+                    section.Misc.VirtualSize:
+                return None
         raise Exception('Invalid Relative Virtual Address', hex(rva))
 
     # virtual address to raw offset
     def va2ro(self, rva):
         return self.rva2ro(rva - self.ImageNtHeaders.OptionalHeader.ImageBase)
+
+    def rva2flags(self, rva):
+        """Returns the Section Flags for the given Relative Virtual Address."""
+        for section in self.ImageSectionHeaders:
+            if rva >= section.VirtualAddress.value and \
+                    rva < section.VirtualAddress.value + \
+                    section.Misc.VirtualSize:
+                return section.Characteristics
+        return 0
+
+    def rva_is_executable(self, rva):
+        """Returns True if the Relative Virtual Address is Executable."""
+        return self.rva2flags(rva) & IMAGE_SCN_MEM_EXECUTE
 
     # parse the Import Address Table
     def parseImportAddressTable(self, section):
@@ -418,22 +442,24 @@ class Penis:
                     self.raw, offsetImageBaseRelocation)
                 if ImageBaseRelocation.SizeOfBlock == 0: break
 
+                # minimum Structure size for ctypes is 4, so we have to use
+                # the magic value 2 for the size of IMAGE_FIXUP_ENTRY.
                 offsetImageFixupEntry = offsetImageBaseRelocation + \
                     sizeof(IMAGE_BASE_RELOCATION)
                 countImageFixupEntry = (ImageBaseRelocation.SizeOfBlock -
-                    sizeof(IMAGE_BASE_RELOCATION)) / sizeof(IMAGE_FIXUP_ENTRY)
+                    sizeof(IMAGE_BASE_RELOCATION)) / 2
 
                 # extract all Image Fixup Entries
-                entries = (IMAGE_FIXUP_ENTRY * countImageFixupEntry). \
-                    from_buffer_copy(self.raw, offsetImageFixupEntry)
+                for i in xrange(countImageFixupEntry):
+                    entry = IMAGE_FIXUP_ENTRY.from_buffer_copy(self.raw,
+                        offsetImageFixupEntry + i * 2)
 
-                # add each entry
-                for entry in entries:
+                    if entry.Type == 0: continue
                     if entry.Type != 3:
                         raise Exception('Unknown Relocation Type',
                             str(entry.Type))
                     self.RelocationTable.append(
-                        ImageBaseRelocation.VirtualAddress + entry.Offset)
+                        ImageBaseRelocation.VirtualAddress.value + entry.Offset)
 
                 # next block
                 offsetImageBaseRelocation += ImageBaseRelocation.SizeOfBlock
@@ -456,6 +482,70 @@ class Penis:
 
                 self.ThreadLocalStorageCallbacks.append(callback)
                 offsetCallback += sizeof(c_uint)
+
+    def _parseCodeAddress(self, rva, raw_offset, queue):
+        for instr in distorm3.DecomposeGenerator(rva,
+                self.raw[raw_offset:], distorm3.Decode32Bits):
+            # we have already analyzed this address
+            if self.parsed[raw_offset]: break
+            self.parsed[raw_offset] = True
+
+            # this is not executable memory
+            if not self.rva_is_executable(rva): break
+
+            print hex(instr.address)[:-1], instr, instr.size
+            raw_offset += instr.size
+            rva += instr.size
+
+            # jump to or call an address?
+            if instr.flowControl in ['FC_CALL', 'FC_UNC_BRANCH',
+                    'FC_CND_BRANCH'] and \
+                    instr.operands[0].type == distorm3.OPERAND_IMMEDIATE:
+                queue.append(instr.operands[0].value)
+
+            # stop disassembling..
+            if instr.mnemonic.lower() in ['retn', 'jmp']:
+                break
+
+    # parse code section
+    def parseCodeSection(self):
+        """Parse the Code Section(s).
+
+        Uses the Original Entry Point, Relocation Data, (relative, conditional)
+        jumps and call instructions to disassemble the entire code section.
+
+        """
+        if not len(self.RelocationTable):
+            raise Exception(
+                'Relocation Table is empty, this binary is not supported!')
+
+        # queue containing all relative virtual addresses
+        queue = collections.deque()
+
+        # entry point
+        queue.append(self.ImageNtHeaders.OptionalHeader.AddressOfEntryPoint)
+
+        # each entry in the Relocation Table that is within a (!) code section.
+        # note that the value to be relocated has to point to executable
+        # memory, otherwise it could be something like IAT.
+        for rva in self.RelocationTable:
+            offset = self.rva2ro(rva)
+            val = struct.unpack('L', self.raw[offset:offset+4])[0] - \
+                        self.ImageNtHeaders.OptionalHeader.ImageBase
+            # this relocation should not be a Thunk address and the value at
+            # the address should be executable.
+            if val not in [x.thunk for x in self.ImportAddressTable] and \
+                    self.rva_is_executable(val):
+                queue.append(val)
+
+        print 'addresses', [hex(int(rva)) for rva in queue]
+
+        while len(queue):
+            rva = queue.popleft()
+            if isinstance(rva, Address): rva = rva.value
+            raw_offset = self.rva2ro(rva)
+            if raw_offset is not None and not self.parsed[raw_offset]:
+                self._parseCodeAddress(rva, raw_offset, queue)
 
     def parse(self):
         # parse Image Dos Header
@@ -504,6 +594,13 @@ class Penis:
             self.ImageNtHeaders.OptionalHeader.DataDirectory[
                 IMAGE_DIRECTORY_ENTRY_TLS]
         self.parseThreadLocalStorage(ThreadLocalStorageSection)
+
+        # for each byte in the buffer, keep a bit which stores if it has
+        # been processed yet, TODO use `bitarray' module
+        self.parsed = [0 for i in xrange(len(self.raw))]
+
+        # parse Code Section
+        self.parseCodeSection()
 
     # returns a section object
     def createImportAddressTable(self):
@@ -654,7 +751,8 @@ class Penis:
 
 if __name__ == '__main__':
     # set a default parameter..
-    sys.argv = (sys.argv[0], 'yasm.exe')
+    #sys.argv = (sys.argv[0], 'a.exe')
+    sys.argv = (sys.argv[0], 'switch.exe')
     if len(sys.argv) == 1:
         print 'Usage: %s <filename>' % sys.argv[0]
         exit(0)
