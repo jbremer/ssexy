@@ -1,4 +1,13 @@
+"""
+ssexy v0.1    (C) 2012 Jurriaan Bremer
+
+"""
+
 import sys, pefile, distorm3
+
+# config stores some configuration, as well as API definitions (ie, win32
+# api's are like _MessageBox@4..)
+import config
 
 # oboy this is ugly
 sys.path.append('pyasm2')
@@ -66,6 +75,11 @@ if __name__ == '__main__':
     # make a addr: value dictionary for all imports
     imports = dict((x.address, x.name) for e in pe.DIRECTORY_ENTRY_IMPORT
         for x in e.imports)
+
+    # apply config to the imports, if its not in the configuration, just
+    # prepend the api with an underscore, the way gcc likes it.
+    imports = dict((k, config.apis[v] if v in config.apis else '_' + v)
+        for k, v in imports.items())
 
     # dictionary with addr: value where addr is the address of the
     # `jmp dword [thunk address]' and value the name of this import.
