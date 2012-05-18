@@ -58,9 +58,35 @@ if __name__ == '__main__':
     # load the pe file
     pe = pefile.PE(sys.argv[1])
 
+    # make a addr: value dictionary for all imports
+    imports = dict((x.address, x.name) for e in pe.DIRECTORY_ENTRY_IMPORT
+        for x in e.imports)
+
+    # dictionary with addr: value where addr is the address of the
+    # `jmp dword [thunk address]' and value the name of this import.
+    iat_label = {}
+
     # walk each section, find those that are executable and disassemble those
     for section in filter(lambda x: x.IMAGE_SCN_MEM_EXECUTE, pe.sections):
         g = distorm3.DecomposeGenerator(pe.OPTIONAL_HEADER.ImageBase +
             section.VirtualAddress, section.get_data(), distorm3.Decode32Bits)
         for instr in g:
+            # useless instruction?
+            if str(instr) in ('NOP', 'ADD [EAX], AL', 'LEA ESI, [ESI]') or \
+                    str(instr)[:2] == 'DB':
+                continue
+
+            # a jump to one of the imports?
+            if instr.mnemonic == 'JMP' and instr.operands[0].type == \
+                    distorm3.OPERAND_ABSOLUTE_ADDRESS and \
+                    instr.operands[0].disp in imports:
+                iat_label[instr.address] = imports[instr.operands[0].disp]
+                continue
+
+            # quite hackery, but when the jumps with thunk address have been
+            # processed, we can be fairly sure that there will be no (legit)
+            # core anymore.
+            if len(iat_label):
+                break
+
             print str(translate(instr))
