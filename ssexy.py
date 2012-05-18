@@ -144,7 +144,9 @@ if __name__ == '__main__':
                     # keep this address
                     addresses.append(int(instr.op2))
                     # make a label from this address
-                    instr.op2 = pyasm2.Label(hex(int(instr.op2)))
+                    # TODO: fix this horrible hack
+                    instr.op2 = pyasm2.Label('offset flat:__lbl_%08x' %
+                        int(instr.op2), prepend=False)
                 elif isinstance(instr.op2, pyasm2.MemoryAddress) and \
                         reloc == instr.address + instr.length - 4:
                     print 'reloc in op2 memaddr', str(instr.op2)
@@ -216,6 +218,9 @@ if __name__ == '__main__':
         if isinstance(instr, pyasm2.Label):
             program.append(str(instr) + ':')
         else:
-            program.append(str(instr))
+            # TODO: fix this terrible hack as well
+            program.append(str(instr).replace('byte', 'byte ptr').replace(
+                '\sword', '\sword ptr').replace('dword', 'dword ptr').replace(
+                'retn', 'ret'))
 
     print '\n'.join(program)
