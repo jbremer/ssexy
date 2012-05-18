@@ -145,6 +145,14 @@ if __name__ == '__main__':
 
             instructions += block
 
+        # remove any addresses that are from within the current section
+        for i in xrange(len(addresses)):
+            if addresses[i] >= pe.OPTIONAL_HEADER.ImageBase + \
+                    section.VirtualAddress and addresses[i] < \
+                    pe.OPTIONAL_HEADER.ImageBase + section.VirtualAddress + \
+                    len(section.get_data()):
+                del addresses[i]
+
     # walk over each instruction, if it has references, we update them
     for instr in instructions.instructions:
         # we can skip labels
@@ -160,12 +168,40 @@ if __name__ == '__main__':
                 instr.lbl.prepend = False
             continue
 
-        # check for references to data
-        elif hasattr(instr, 'operand1') and \
-                isinstance(instr.operand1, pyasm2.Label):
-            print instr.operand1
-        elif hasattr(instr, 'operand2') and \
-                isinstance(instr.operand2, pyasm2.Label):
-            print instr.operand2
+    program = ['.file "ssexy.c"', '.intel_syntax noprefix']
 
-    print instructions, [(hex(x), y) for x, y in iat_label.items()]
+    # we walk over each section, if a reference to this section has been found
+    # then we will dump the entire section as bytecode.. with matching labels
+    for section in pe.sections:
+        base = pe.OPTIONAL_HEADER.ImageBase + section.VirtualAddress
+        data = section.get_data()
+        addr = set(range(base, base + len(data))).intersection(addresses)
+        if addr:
+            # create a header for this section
+            program.append('.section %s,"dr"' % section.Name.strip('\x00'))
+
+            # for now we do it the easy way.. one line and label per byte, lol
+            for addr in xrange(len(data)):
+                program.append('__lbl_%08x: .byte 0x%02x' % (base + addr,
+                    ord(data[addr])))
+
+            # empty line..
+            program.append('')
+
+    # time to define 'main'
+    program.append('.globl _main')
+
+    # append each instruction
+    for instr in instructions.instructions:
+        # for OEP we add an additional 'main' label
+        if hasattr(instr, 'address') and instr.address == \
+                pe.OPTIONAL_HEADER.ImageBase + \
+                pe.OPTIONAL_HEADER.AddressOfEntryPoint:
+            program.append('_main:')
+        # if this is an label, we want a colon as postfix
+        if isinstance(instr, pyasm2.Label):
+            program.append(str(instr) + ':')
+        else:
+            program.append(str(instr))
+
+    print '\n'.join(program)
