@@ -66,6 +66,8 @@ if __name__ == '__main__':
     # `jmp dword [thunk address]' and value the name of this import.
     iat_label = {}
 
+    instructions = pyasm2.block()
+
     # walk each section, find those that are executable and disassemble those
     for section in filter(lambda x: x.IMAGE_SCN_MEM_EXECUTE, pe.sections):
         g = distorm3.DecomposeGenerator(pe.OPTIONAL_HEADER.ImageBase +
@@ -85,8 +87,32 @@ if __name__ == '__main__':
 
             # quite hackery, but when the jumps with thunk address have been
             # processed, we can be fairly sure that there will be no (legit)
-            # core anymore.
+            # code anymore.
             if len(iat_label):
                 break
 
-            print str(translate(instr))
+            instructions += translate(instr)
+
+    # walk over each instruction, if it has references, we update them
+    for instr in instructions.instructions:
+        # we can skip labels
+        if isinstance(instr, pyasm2.Label):
+            continue
+
+        # check for references to imports
+        if isinstance(instr, pyasm2.RelativeJump):
+            # dirty way of asking 'is this a hex number?'
+            if instr.lbl.index[:2] == '0x' and \
+                    int(instr.lbl.index, 16) in iat_label:
+                instr.lbl.index = iat_label[int(instr.lbl.index, 16)]
+                instr.lbl.prepend = False
+
+        # check for references to data
+        elif hasattr(instr, 'operand1') and \
+                isinstance(instr.operand1, pyasm2.Label):
+            print instr.operand1
+        elif hasattr(instr, 'operand2') and \
+                isinstance(instr.operand2, pyasm2.Label):
+            print instr.operand2
+
+    print instructions, [(hex(x), y) for x, y in iat_label.items()]
