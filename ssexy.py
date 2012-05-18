@@ -1,17 +1,66 @@
-import sys, binascii, distorm3, enc
+import sys, pefile, distorm3
+
+# oboy this is ugly
+sys.path.append('pyasm2')
+import pyasm2
+
+def translate(instr):
+    """Function to translate distorm3 into pyasm2."""
+    # try to resolve this instruction
+    if hasattr(pyasm2, instr.mnemonic.lower()):
+        cls = getattr(pyasm2, instr.mnemonic.lower())
+    # some instructions collide with python keywords, they have an
+    # underscore postfix
+    elif hasattr(pyasm2, instr.mnemonic.lower() + '_'):
+        cls = getattr(pyasm2, instr.mnemonic.lower() + '_')
+    # unfortunately, this instruction has not been implemented
+    else:
+        raise Exception('Unknown instruction: %s' % instr.mnemonic)
+
+    def reg(name):
+        """Small wrapper to return a Register."""
+        if isinstance(name, int):
+            name = distorm3.Registers[name]
+        if not hasattr(pyasm2, name.lower()):
+            raise Exception('Unknown register: %s' % op.name)
+        return getattr(pyasm2, name.lower())
+
+    operands = []
+
+    for op in instr.operands:
+        if op.type == distorm3.OPERAND_IMMEDIATE:
+            operands.append(op.value)
+
+        elif op.type == distorm3.OPERAND_REGISTER:
+            operands.append(reg(op.name))
+
+        elif op.type == distorm3.OPERAND_MEMORY:
+            base = None if op.base is None else reg(op.base)
+            index = None if op.index is None else reg(op.index)
+            mult = None if not op.scale else op.scale
+            disp = None if not op.disp else op.disp
+
+            operands.append(pyasm2.MemoryAddress(size=op.size, reg1=base,
+                reg2=index, mult=mult, disp=disp))
+
+        elif op.type == distorm3.OPERAND_ABSOLUTE_ADDRESS:
+            operands.append(pyasm2.MemoryAddress(size=op.size, disp=op.disp))
+
+    # create an instruction based on the operands
+    return pyasm2.block(pyasm2.lbl(hex(instr.address)), cls(*operands))
 
 if __name__ == '__main__':
-	if len(sys.argv) < 2:
-		print 'Usage: python %s <machine-code>' % sys.argv[0]
-		exit(0)
-	
-	# get hex
-	code = binascii.unhexlify(sys.argv[1])
-	
-	# encode the instructions to sse
-	lines = []
-	for dis in distorm3.DecomposeGenerator(0, code, distorm3.Decode32Bits):
-		lines += enc.Enc(dis).encode()
-	
-	# print the instructions
-	print '"' + '\\n"\r\n"'.join(lines) + '\\n"'
+    sys.stderr.write('ssexy v0.1    (C) 2012 Jurriaan Bremer\n')
+    if len(sys.argv) != 2:
+        print 'Usage: %s <binary>' % sys.argv[0]
+        exit(0)
+
+    # load the pe file
+    pe = pefile.PE(sys.argv[1])
+
+    # walk each section, find those that are executable and disassemble those
+    for section in filter(lambda x: x.IMAGE_SCN_MEM_EXECUTE, pe.sections):
+        g = distorm3.DecomposeGenerator(pe.OPTIONAL_HEADER.ImageBase +
+            section.VirtualAddress, section.get_data(), distorm3.Decode32Bits)
+        for instr in g:
+            print str(translate(instr))
