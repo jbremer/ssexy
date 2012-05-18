@@ -47,7 +47,12 @@ def translate(instr):
             operands.append(pyasm2.MemoryAddress(size=op.size, disp=op.disp))
 
     # create an instruction based on the operands
-    return pyasm2.block(pyasm2.lbl(hex(instr.address)), cls(*operands))
+    ret = cls(*operands)
+
+    # store the address and length of this instruction
+    ret.address = instr.address
+    ret.length = instr.size
+    return ret
 
 if __name__ == '__main__':
     sys.stderr.write('ssexy v0.1    (C) 2012 Jurriaan Bremer\n')
@@ -66,8 +71,12 @@ if __name__ == '__main__':
     # `jmp dword [thunk address]' and value the name of this import.
     iat_label = {}
 
-    # a list of all relocations
-    relocs = [y.rva for x in pe.DIRECTORY_ENTRY_BASERELOC for y in x.entries]
+    # a set of all relocations
+    relocs = set([(pe.OPTIONAL_HEADER.ImageBase + y.rva)
+        for x in pe.DIRECTORY_ENTRY_BASERELOC for y in x.entries])
+
+    # a list of addresses that were used.
+    addresses = []
 
     instructions = pyasm2.block()
 
@@ -94,7 +103,47 @@ if __name__ == '__main__':
             if len(iat_label):
                 break
 
-            instructions += translate(instr)
+            # convert the instruction from distorm3 format to pyasm2 format.
+            instr = translate(instr)
+
+            # we create the block already here, otherwise our `labelnr' is
+            # not defined.
+            block = pyasm2.block(pyasm2.Label(hex(instr.address)), instr)
+
+            # now we check if this instruction has a relocation inside it
+            # not a very efficient way, but oke.
+            reloc = instr.length > 4 and relocs.intersection(range(
+                instr.address, instr.address + instr.length - 3))
+            if reloc:
+                # TODO support for two relocations in one instruction
+                # (displacement *and* immediate)
+                reloc = reloc.pop()
+                # there is only one operand, that's easy
+                if not instr.op2:
+                    print instr.op1
+                # if the second operand is an immediate and the relocation is
+                # in the last four bytes of the instruction, then this
+                # immediate is the reloc. Otherwise, if the second operand is
+                # a memory address, then it's the displacement.
+                elif isinstance(instr.op2, pyasm2.Immediate) and reloc == \
+                        instr.address + instr.length - 4:
+                    # keep this address
+                    addresses.append(int(instr.op2))
+                    # make a label from this address
+                    instr.op2 = pyasm2.Label(hex(int(instr.op2)))
+                elif isinstance(instr.op2, pyasm2.MemoryAddress) and \
+                        reloc == instr.address + instr.length - 4:
+                    print 'reloc in op2 memaddr', str(instr.op2)
+                # the relocation is not inside the second operand, it must be
+                # inside the first operand after all.
+                elif isinstance(instr.op1, pyasm2.MemoryAddress):
+                    print 'reloc in op1 memaddr', str(instr.op1)
+                elif isinstance(instr.op1, pyasm2.Immediate):
+                    print 'reloc in op1 imm', instr.op1
+                else:
+                    print 'Invalid Relocation!'
+
+            instructions += block
 
     # walk over each instruction, if it has references, we update them
     for instr in instructions.instructions:
