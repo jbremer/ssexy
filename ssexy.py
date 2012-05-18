@@ -66,6 +66,9 @@ if __name__ == '__main__':
     # `jmp dword [thunk address]' and value the name of this import.
     iat_label = {}
 
+    # a list of all relocations
+    relocs = [y.rva for x in pe.DIRECTORY_ENTRY_BASERELOC for y in x.entries]
+
     instructions = pyasm2.block()
 
     # walk each section, find those that are executable and disassemble those
@@ -101,11 +104,12 @@ if __name__ == '__main__':
 
         # check for references to imports
         if isinstance(instr, pyasm2.RelativeJump):
-            # dirty way of asking 'is this a hex number?'
-            if instr.lbl.index[:2] == '0x' and \
-                    int(instr.lbl.index, 16) in iat_label:
-                instr.lbl.index = iat_label[int(instr.lbl.index, 16)]
+            # not very good, but for now (instead of checking relocs) we check
+            # if the index is in the iat tabel..
+            if instr.lbl.index in iat_label:
+                instr.lbl.index = iat_label[instr.lbl.index]
                 instr.lbl.prepend = False
+            continue
 
         # check for references to data
         elif hasattr(instr, 'operand1') and \
