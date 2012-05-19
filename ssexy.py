@@ -22,6 +22,14 @@ def translate(instr):
     # underscore postfix
     elif hasattr(pyasm2, instr.mnemonic.lower() + '_'):
         cls = getattr(pyasm2, instr.mnemonic.lower() + '_')
+    # exception for these instructions, as we have to get the size of the
+    # instruction from the operands..
+    elif instr.mnemonic.lower() in ['movs', 'cmps']:
+        size = 'b' if instr.operands[0].size == 8 else 'd'
+        cls = getattr(pyasm2, instr.mnemonic.lower() + size)
+        # remove the operands from this opcode, because we already give the
+        # size in the opcode.
+        instr.operands = ()
     # unfortunately, this instruction has not been implemented
     else:
         raise Exception('Unknown instruction: %s' % instr.mnemonic)
@@ -38,7 +46,11 @@ def translate(instr):
 
     for op in instr.operands:
         if op.type == distorm3.OPERAND_IMMEDIATE:
-            operands.append(op.value)
+            if instr.flowControl in ['FC_CALL', 'FC_UNC_BRANCH',
+                    'FC_CND_BRANCH']:
+                operands.append('%08x' % op.value)
+            else:
+                operands.append(op.value)
 
         elif op.type == distorm3.OPERAND_REGISTER:
             operands.append(reg(op.name))
@@ -57,6 +69,10 @@ def translate(instr):
 
     # create an instruction based on the operands
     ret = cls(*operands)
+
+    # rep prefix
+    if 'FLAG_REP' in instr.flags:
+        ret.rep = True
 
     # store the address and length of this instruction
     ret.address = instr.address
@@ -117,12 +133,14 @@ if __name__ == '__main__':
             if len(iat_label):
                 break
 
+            #print str(instr)
+
             # convert the instruction from distorm3 format to pyasm2 format.
             instr = translate(instr)
 
             # we create the block already here, otherwise our `labelnr' is
             # not defined.
-            block = pyasm2.block(pyasm2.Label(hex(instr.address)), instr)
+            block = pyasm2.block(pyasm2.Label('%08x' % instr.address), instr)
 
             # now we check if this instruction has a relocation inside it
             # not a very efficient way, but oke.
@@ -134,7 +152,11 @@ if __name__ == '__main__':
                 reloc = reloc.pop()
                 # there is only one operand, that's easy
                 if not instr.op2:
-                    print instr.op1
+                    sys.stderr.write('reloc in op1 %s??\n' % instr.op1)
+                    if isinstance(instr.op1, pyasm2.MemoryAddress):
+                        addresses.append(int(instr.op1.disp))
+                        # change the displacement to a label
+                        instr.op1 = str(instr.op1).replace('0x', '__lbl_00')
                 # if the second operand is an immediate and the relocation is
                 # in the last four bytes of the instruction, then this
                 # immediate is the reloc. Otherwise, if the second operand is
@@ -149,25 +171,34 @@ if __name__ == '__main__':
                         int(instr.op2), prepend=False)
                 elif isinstance(instr.op2, pyasm2.MemoryAddress) and \
                         reloc == instr.address + instr.length - 4:
-                    print 'reloc in op2 memaddr', str(instr.op2)
+                    addresses.append(int(instr.op2.disp))
+                    # change the displacement to a label
+                    instr.op2 = str(instr.op2).replace('0x', '__lbl_00')
+                    sys.stderr.write('reloc in op2 memaddr %s\n' % str(instr.op2))
                 # the relocation is not inside the second operand, it must be
                 # inside the first operand after all.
                 elif isinstance(instr.op1, pyasm2.MemoryAddress):
-                    print 'reloc in op1 memaddr', str(instr.op1)
+                    addresses.append(int(instr.op1.disp))
+                    instr.op1 = str(instr.op1).replace('0x', '__lbl_00')
+                    sys.stderr.write('reloc in op1 memaddr %s\n' % str(instr.op1))
                 elif isinstance(instr.op1, pyasm2.Immediate):
-                    print 'reloc in op1 imm', instr.op1
+                    addresses.append(int(instr.op1))
+                    instr.op1 = '__lbl_%08x' % int(instr.op1)
+                    sys.stderr.write('reloc in op1 imm %s\n' % instr.op1)
                 else:
-                    print 'Invalid Relocation!'
+                    sys.stderr.write('Invalid Relocation!\n')
 
             instructions += block
 
         # remove any addresses that are from within the current section
+        newlist = addresses[:]
         for i in xrange(len(addresses)):
             if addresses[i] >= pe.OPTIONAL_HEADER.ImageBase + \
                     section.VirtualAddress and addresses[i] < \
                     pe.OPTIONAL_HEADER.ImageBase + section.VirtualAddress + \
                     len(section.get_data()):
-                del addresses[i]
+                newlist[i] = None
+        addresses = filter(lambda x: x is not None, newlist)
 
     # walk over each instruction, if it has references, we update them
     for instr in instructions.instructions:
@@ -179,8 +210,8 @@ if __name__ == '__main__':
         if isinstance(instr, pyasm2.RelativeJump):
             # not very good, but for now (instead of checking relocs) we check
             # if the index is in the iat tabel..
-            if instr.lbl.index in iat_label:
-                instr.lbl.index = iat_label[instr.lbl.index]
+            if int(instr.lbl.index, 16) in iat_label:
+                instr.lbl.index = iat_label[int(instr.lbl.index, 16)]
                 instr.lbl.prepend = False
             continue
 
@@ -203,6 +234,10 @@ if __name__ == '__main__':
 
             # empty line..
             program.append('')
+        # if there is memory left
+        for left in xrange(section.Misc_VirtualSize - len(data)):
+            program.append('.lcomm __lbl_%08x, 1, 32' % (
+                pe.OPTIONAL_HEADER.ImageBase + section.VirtualAddress + left))
 
     # time to define 'main'
     program.append('.globl _main')
@@ -220,7 +255,7 @@ if __name__ == '__main__':
         else:
             # TODO: fix this terrible hack as well
             program.append(str(instr).replace('byte', 'byte ptr').replace(
-                '\sword', '\sword ptr').replace('dword', 'dword ptr').replace(
-                'retn', 'ret'))
+                'word', 'word ptr').replace('retn', 'ret').replace(
+                '__lbl_00400000', '0x400000'))
 
     print '\n'.join(program)

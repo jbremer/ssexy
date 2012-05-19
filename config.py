@@ -4,4 +4,4 @@ Configuration file for ssexy.
 
 """
 
-apis = {}
+apis = {'SetUnhandledExceptionFilter': '_SetUnhandledExceptionFilter@4'}
