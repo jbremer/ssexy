@@ -121,17 +121,17 @@ if __name__ == '__main__':
                 continue
 
             # a jump to one of the imports?
-            if instr.mnemonic == 'JMP' and instr.operands[0].type == \
-                    distorm3.OPERAND_ABSOLUTE_ADDRESS and \
-                    instr.operands[0].disp in imports:
-                iat_label[instr.address] = imports[instr.operands[0].disp]
-                continue
+            #if instr.mnemonic == 'JMP' and instr.operands[0].type == \
+            #        distorm3.OPERAND_ABSOLUTE_ADDRESS and \
+            #        instr.operands[0].disp in imports:
+            #    iat_label[instr.address] = imports[instr.operands[0].disp]
+            #    continue
 
             # quite hackery, but when the jumps with thunk address have been
             # processed, we can be fairly sure that there will be no (legit)
             # code anymore.
-            if len(iat_label):
-                break
+            #if len(iat_label):
+            #    break
 
             #print str(instr)
 
@@ -154,9 +154,20 @@ if __name__ == '__main__':
                 if not instr.op2:
                     sys.stderr.write('reloc in op1 %s??\n' % instr.op1)
                     if isinstance(instr.op1, pyasm2.MemoryAddress):
-                        addresses.append(int(instr.op1.disp))
-                        # change the displacement to a label
-                        instr.op1 = str(instr.op1).replace('0x', '__lbl_00')
+                        # special occassion, this memory addres is an import
+                        if instr.op1.reg1 is None and \
+                                instr.op1.reg2 is None and \
+                                int(instr.op1.disp) in imports:
+                            instr.op1 = imports[int(instr.op1.disp)]
+                        else:
+                            addresses.append(int(instr.op1.disp))
+                            # change the displacement to a label
+                            instr.op1 = str(instr.op1).replace('0x',
+                                '__lbl_00')
+                    elif isinstance(instr.op1, pyasm2.Immediate):
+                        addresses.append(int(instr.op1))
+                        instr.op1 = str(instr.op1).replace('0x',
+                            'offset flat:__lbl_00')
                 # if the second operand is an immediate and the relocation is
                 # in the last four bytes of the instruction, then this
                 # immediate is the reloc. Otherwise, if the second operand is
