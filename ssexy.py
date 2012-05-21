@@ -13,7 +13,9 @@ import config
 sys.path.append('pyasm2')
 import pyasm2
 
-def translate(instr):
+import translate
+
+def distorm3_to_pyasm2(instr):
     """Function to translate distorm3 into pyasm2."""
     # try to resolve this instruction
     if hasattr(pyasm2, instr.mnemonic.lower()):
@@ -116,8 +118,8 @@ if __name__ == '__main__':
             section.VirtualAddress, section.get_data(), distorm3.Decode32Bits)
         for instr in g:
             # useless instruction?
-            if str(instr) in ('NOP', 'ADD [EAX], AL', 'LEA ESI, [ESI]') or \
-                    str(instr)[:2] == 'DB':
+            if str(instr) in ('NOP', 'ADD [EAX], AL', 'LEA ESI, [ESI]',
+                        'INT 3') or str(instr)[:2] == 'DB':
                 continue
 
             # a jump to one of the imports?
@@ -136,7 +138,9 @@ if __name__ == '__main__':
             #print str(instr)
 
             # convert the instruction from distorm3 format to pyasm2 format.
-            instr = translate(instr)
+            instr = distorm3_to_pyasm2(instr)
+
+            instr = translate.translate(instr)
 
             # we create the block already here, otherwise our `labelnr' is
             # not defined.
