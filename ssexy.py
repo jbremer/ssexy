@@ -93,13 +93,13 @@ if __name__ == '__main__':
     pe = pefile.PE(sys.argv[1])
 
     # make a addr: value dictionary for all imports
-    imports = dict((x.address, x.name) for e in pe.DIRECTORY_ENTRY_IMPORT
-        for x in e.imports)
+    imports = dict((x.address, x.name or (e.dll.lower(), x.ordinal))
+        for e in pe.DIRECTORY_ENTRY_IMPORT for x in e.imports)
 
     # apply config to the imports, if its not in the configuration, just
     # prepend the api with an underscore, the way gcc likes it.
-    imports = dict((k, config.apis[v] if v in config.apis else '_' + v)
-        for k, v in imports.items())
+    imports = dict((k, config.apis[v] if v in config.apis else
+        config.Api('_' + v)) for k, v in imports.items())
 
     # dictionary with addr: value where addr is the address of the
     # `jmp dword [thunk address]' and value the name of this import.
@@ -142,6 +142,8 @@ if __name__ == '__main__':
             # code anymore.
             #if len(iat_label):
             #    break
+
+            #print str(instr)
 
             #print str(instr)
 
@@ -222,7 +224,7 @@ if __name__ == '__main__':
                 else:
                     sys.stderr.write('Invalid Relocation!\n')
 
-            if not isinstance(instr.op1, str):
+            if not isinstance(instr.op1, str) or True:
                 #print str(instr)
                 instr = translate.Translater(instr, m128s, m32s).translate()
                 if offset_flat:
@@ -238,10 +240,6 @@ if __name__ == '__main__':
                     else:
                         x.op1 = encode_offset_flat(x.op1)
                         x.op2 = encode_offset_flat(x.op2)
-            elif instr.mnemonic() == 'call':
-                # prepend a call with a mov esp, xmm7
-                instr = pyasm2.block(pyasm2.movd(pyasm2.esp, pyasm2.xmm7),
-                    instr)
 
             instructions += pyasm2.block(pyasm2.Label('%08x' % addr), instr)
 

@@ -13,6 +13,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "memstuff", "..\memstuff\mem
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "switch", "..\switch\switch.vcxproj", "{AE29F026-411B-4C4F-9617-FB38C0ACE701}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "nc", "..\nc\nc.vcxproj", "{F2510BBE-0DBD-4A4E-ADD0-81B4913767DF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Win32 = Debug|Win32
@@ -43,6 +45,10 @@ Global
 		{AE29F026-411B-4C4F-9617-FB38C0ACE701}.Debug|Win32.Build.0 = Debug|Win32
 		{AE29F026-411B-4C4F-9617-FB38C0ACE701}.Release|Win32.ActiveCfg = Release|Win32
 		{AE29F026-411B-4C4F-9617-FB38C0ACE701}.Release|Win32.Build.0 = Release|Win32
+		{F2510BBE-0DBD-4A4E-ADD0-81B4913767DF}.Debug|Win32.ActiveCfg = Debug|Win32
+		{F2510BBE-0DBD-4A4E-ADD0-81B4913767DF}.Debug|Win32.Build.0 = Debug|Win32
+		{F2510BBE-0DBD-4A4E-ADD0-81B4913767DF}.Release|Win32.ActiveCfg = Release|Win32
+		{F2510BBE-0DBD-4A4E-ADD0-81B4913767DF}.Release|Win32.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
