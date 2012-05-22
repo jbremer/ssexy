@@ -25,8 +25,8 @@ int Main()
 
 	listen(s, 5);
 
+	char buf[128] = {0};
     while (1) {
-		char buf[128];
         SOCKET c = accept(s, NULL, NULL);
         int len = recv(c, buf, sizeof(buf), 0);
         if(hash(buf, len) == 2680) {
