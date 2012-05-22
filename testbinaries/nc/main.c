@@ -1,10 +1,10 @@
 #include <windows.h>
 #include <stdio.h>
 
-unsigned short hash(const char *s, int len)
+unsigned short hash(const char *s, unsigned int len)
 {
     unsigned int ret = 0;
-    while (len--) ret += *s++ * len;
+    while (len--) ret += *(unsigned char *)s++ * len;
     return ret;
 }
 

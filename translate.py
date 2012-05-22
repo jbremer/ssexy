@@ -96,15 +96,23 @@ class Translater:
 
         if isinstance(src, mem):
             self.mem_eval(xmm3, src)
+            gpr1 = self.usable_gpr()
+            self.block += movd(gpr1, xmm3)
+            f = mov if src.size == 32 else movzx
+            g = {8: byte, 16: word, 32: dword}[src.size]
+            self.block += f(gpr1, g[gpr1])
+            self.block += movd(xmm3, gpr1)
             src = xmm3
 
         if isinstance(src, imm):
             self.block += movd(xmm3, self.m32(src))
             src = xmm3
 
+        #sys.stderr.write('dst: %s, src: %s\n' % (dst, src))
+
         # now read the value.
         if src.size == 128:
-           self.block += movups(dst, src)
+            self.block += movups(dst, src)
         elif src.size == 32:
             gpr = self.usable_gpr()
             self.block += mov(gpr, src)
@@ -124,6 +132,8 @@ class Translater:
         self.block += movd(gpr1, xmm3)
         dst = mem(size=dst.size, reg1=gpr1)
 
+        #sys.stderr.write('dst: %s, src: %s, gpr1: %s\n' % (dst, src, gpr1))
+
         if isinstance(src, gpr):
             self.read_gpr(xmm0, src)
             src = xmm0
@@ -134,12 +144,14 @@ class Translater:
         # register to an address or similar
         if dst.size in (8, 16, 32) and (dst.size == src.size or
                 isinstance(src, imm)):
+            #sys.stderr.write('dst: %s, src: %s\n' % (dst, src))
             self.block += mov(dst, src)
 
         # from an xmm register to an address
         elif dst.size in (8, 16, 32) and src.size == 128:
             gpr2 = self.usable_gpr()
             self.block += movd(gpr2, src)
+            #sys.stderr.write('dst: %s, gpr2: %s\n' % (dst, gpr2))
             self.block += mov(dst, gpr.registers[dst.size][gpr2.index])
 
         else:
@@ -258,9 +270,27 @@ class Translater:
         # we have to store the xmm6 and xmm7 registers temporarily. As `esp'
         # is altered by the function call, we store this in `ebp'.
 
+        #sys.stderr.write(
+
+        if isinstance(self.instr, RelativeJump):
+            # push the return address on the stack
+            self.sub_gpr(esp, 4)
+            # again, _terrible_
+            self.memory_write(dword[esp], imm(addr=True,
+                value=int(str(self.instr.lbl)[6:], 16) + 0xfc000000))
+            self.block.instructions[-1].op2 = 'offset flat:' + \
+                str(self.block.instructions[-1].op2)
+            self.instr._name_ = 'jmp'
+
         # prepare `esp', the stack pointer
         self.read_gpr(esp, esp)
+
         self.block += self.instr
+
+        if isinstance(self.instr, RelativeJump):
+            self.block += Label(
+                str('%08x' % (int(str(self.instr.lbl)[6:], 16) + 0xfc000000)))
+
         # store the result stored in `eax'
         self.write_gpr(eax, eax)
 
@@ -307,3 +337,16 @@ class Translater:
         self.block += movd(eax, xmm0)
         self.block += movd(ebx, xmm1)
         self.block += cmp(eax, ebx)
+
+    def encode_imul(self):
+        self.read_operand(xmm0, self.instr.op1)
+        self.read_operand(xmm1, self.instr.op2)
+        self.block += pmuludq(xmm0, xmm1)
+        self.write_gpr(self.instr.op1, xmm0)
+
+    def encode_movzx(self):
+        self.read_operand(xmm0, self.instr.op2)
+        flag = 0xff if self.instr.op1.size == 8 else 0xffff
+        self.block += pand(xmm0, self.m128(flag, 0, 0, 0))
+        self.write_gpr(self.instr.op1, xmm0)
+

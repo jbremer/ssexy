@@ -318,6 +318,6 @@ if __name__ == '__main__':
             # TODO: fix this terrible hack as well
             program.append(str(instr).replace('byte', 'byte ptr').replace(
                 'word', 'word ptr').replace('retn', 'ret').replace(
-                '__lbl_00400000', '0x400000'))
+                '__lbl_00400000', '0x400000').replace('oword ptr', ''))
 
     print '\n'.join(program)
