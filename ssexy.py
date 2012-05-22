@@ -238,6 +238,10 @@ if __name__ == '__main__':
                     else:
                         x.op1 = encode_offset_flat(x.op1)
                         x.op2 = encode_offset_flat(x.op2)
+            elif instr.mnemonic() == 'call':
+                # prepend a call with a mov esp, xmm7
+                instr = pyasm2.block(pyasm2.movd(pyasm2.esp, pyasm2.xmm7),
+                    instr)
 
             instructions += pyasm2.block(pyasm2.Label('%08x' % addr), instr)
 

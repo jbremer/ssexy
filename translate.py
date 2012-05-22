@@ -207,8 +207,26 @@ class Translater:
         self.block += psubd(xmm3, self.m128(val, 0, 0, 0))
         self.write_gpr(dst, xmm3)
 
+    def read_operand(self, dst, src):
+        """Read value at operand `src' into XMM Register `dst'."""
+        if isinstance(src, gpr):
+            self.read_gpr(dst, src)
+        else:
+            assert isinstance(src, (imm, mem))
+
+            self.xmm_load(dst, src)
+
+    def write_operand(self, dst, src):
+        """Write value `src' into anything specified by operand `dst'."""
+        if isinstance(dst, gpr):
+            self.write_gpr(dst, src)
+        else:
+            assert isinstance(dst, mem)
+
+            self.memory_write(dst, src)
+
     def translate(self):
-        f = getattr(self, '_encode_' + self.instr.mnemonic(), None)
+        f = getattr(self, 'encode_' + self.instr.mnemonic(), None)
         if not f:
             sys.stderr.write('Cannot encode %s\n' % self.instr.mnemonic())
             return block(self.instr)
@@ -222,6 +240,10 @@ class Translater:
             self.instr = x
             self.translate()
 
-    def _encode_push(self):
+    def encode_push(self):
         self.sub_gpr(esp, 4)
         self.memory_write(dword[esp], self.instr.op1)
+
+    def encode_mov(self):
+        self.read_operand(xmm0, self.instr.op2)
+        self.write_operand(self.instr.op1, xmm0)
