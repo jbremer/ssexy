@@ -354,3 +354,21 @@ class Translater:
         self.block += pand(xmm0, self.m128(flag, 0, 0, 0))
         self.write_gpr(self.instr.op1, xmm0)
 
+    def encode_div(self):
+        self.read_gpr(xmm0, eax)
+        self.read_operand(xmm1, self.instr.op1)
+        self.block += cvtdq2pd(xmm0, xmm0)
+        self.block += cvtdq2pd(xmm1, xmm1)
+        self.block += movups(xmm2, xmm0)
+        self.block += divpd(xmm0, xmm1) # xmm0 = eax / op1
+        self.block += subpd(xmm2, xmm1) # xmm2 = eax - eax / op1 = eax % op1
+        self.block += cvttpd2dq(xmm0, xmm0)
+        self.block += cvttpd2dq(xmm2, xmm2)
+        self.write_gpr(eax, xmm0)
+        self.write_gpr(edx, xmm2)
+
+    def encode_and(self):
+        self.read_gpr(xmm0, self.instr.op1)
+        self.read_operand(xmm1, self.instr.op2)
+        self.block += pand(xmm0, xmm1)
+        self.write_gpr(self.instr.op1, xmm0)
