@@ -69,6 +69,8 @@ def distorm3_to_pyasm2(instr):
         elif op.type == distorm3.OPERAND_ABSOLUTE_ADDRESS:
             operands.append(pyasm2.MemoryAddress(size=op.size, disp=op.disp))
 
+    #sys.stderr.write(str(instr) + '\n')
+
     # create an instruction based on the operands
     ret = cls(*operands)
 
@@ -110,6 +112,12 @@ if __name__ == '__main__':
     # a list of addresses that were used.
     addresses = []
 
+    # a list of all m128 values we use
+    m128s = []
+
+    # a list of all dword values we use
+    m32s = []
+
     instructions = pyasm2.block()
 
     # walk each section, find those that are executable and disassemble those
@@ -140,17 +148,20 @@ if __name__ == '__main__':
             # convert the instruction from distorm3 format to pyasm2 format.
             instr = distorm3_to_pyasm2(instr)
 
-            instr = translate.translate(instr)
-
             # we create the block already here, otherwise our `labelnr' is
             # not defined.
-            block = pyasm2.block(pyasm2.Label('%08x' % instr.address), instr)
+            #block = pyasm2.block(pyasm2.Label('%08x' % instr.address), instr)
+            offset_flat = None
+            addr = instr.address
 
             # now we check if this instruction has a relocation inside it
             # not a very efficient way, but oke.
             reloc = instr.length > 4 and relocs.intersection(range(
                 instr.address, instr.address + instr.length - 3))
             if reloc:
+                # make an immediate with `addr' set to True
+                enable_addr = lambda x: Immediate(int(x), addr=True)
+
                 # TODO support for two relocations in one instruction
                 # (displacement *and* immediate)
                 reloc = reloc.pop()
@@ -166,12 +177,14 @@ if __name__ == '__main__':
                         else:
                             addresses.append(int(instr.op1.disp))
                             # change the displacement to a label
-                            instr.op1 = str(instr.op1).replace('0x',
-                                '__lbl_00')
+                            #instr.op1 = str(instr.op1).replace('0x',
+                            #    '__lbl_00')
+                            instr.op1 = enable_addr(instr.op1)
                     elif isinstance(instr.op1, pyasm2.Immediate):
                         addresses.append(int(instr.op1))
-                        instr.op1 = str(instr.op1).replace('0x',
-                            'offset flat:__lbl_00')
+                        offset_flat = int(instr.op1)
+                        #instr.op1 = str(instr.op1).replace('0x',
+                        #    'offset flat:__lbl_00')
                 # if the second operand is an immediate and the relocation is
                 # in the last four bytes of the instruction, then this
                 # immediate is the reloc. Otherwise, if the second operand is
@@ -182,28 +195,51 @@ if __name__ == '__main__':
                     addresses.append(int(instr.op2))
                     # make a label from this address
                     # TODO: fix this horrible hack
-                    instr.op2 = pyasm2.Label('offset flat:__lbl_%08x' %
-                        int(instr.op2), prepend=False)
+                    offset_flat = int(instr.op2)
+                    #instr.op2 = pyasm2.Label('offset flat:__lbl_%08x' %
+                    #    int(instr.op2), prepend=False)
                 elif isinstance(instr.op2, pyasm2.MemoryAddress) and \
                         reloc == instr.address + instr.length - 4:
                     addresses.append(int(instr.op2.disp))
                     # change the displacement to a label
-                    instr.op2 = str(instr.op2).replace('0x', '__lbl_00')
-                    sys.stderr.write('reloc in op2 memaddr %s\n' % str(instr.op2))
+                    instr.op2 = enable_addr(instr.op2)
+                    #instr.op2 = str(instr.op2).replace('0x', '__lbl_00')
+                    sys.stderr.write('reloc in op2 memaddr %s\n' %
+                        str(instr.op2))
                 # the relocation is not inside the second operand, it must be
                 # inside the first operand after all.
                 elif isinstance(instr.op1, pyasm2.MemoryAddress):
                     addresses.append(int(instr.op1.disp))
-                    instr.op1 = str(instr.op1).replace('0x', '__lbl_00')
-                    sys.stderr.write('reloc in op1 memaddr %s\n' % str(instr.op1))
+                    instr.op1 = enable_addr(instr.op1)
+                    #instr.op1 = str(instr.op1).replace('0x', '__lbl_00')
+                    sys.stderr.write('reloc in op1 memaddr %s\n' %
+                        str(instr.op1))
                 elif isinstance(instr.op1, pyasm2.Immediate):
                     addresses.append(int(instr.op1))
-                    instr.op1 = '__lbl_%08x' % int(instr.op1)
+                    instr.op1 = enable_addr(instr.op1)
+                    #instr.op1 = '__lbl_%08x' % int(instr.op1)
                     sys.stderr.write('reloc in op1 imm %s\n' % instr.op1)
                 else:
                     sys.stderr.write('Invalid Relocation!\n')
 
-            instructions += block
+            if not isinstance(instr.op1, str):
+                #print str(instr)
+                instr = translate.Translater(instr, m128s, m32s).translate()
+                if offset_flat:
+                    encode_offset_flat = lambda x: str(x).replace('0x',
+                        'offset flat:__lbl_') if isinstance(x, (int, long,
+                        pyasm2.imm)) and int(x) == offset_flat or isinstance(x,
+                        pyasm2.mem) and x.disp == offset_flat else x
+
+                    if isinstance(instr, pyasm2.block):
+                        for x in instr.instructions:
+                            x.op1 = encode_offset_flat(x.op1)
+                            x.op2 = encode_offset_flat(x.op2)
+                    else:
+                        x.op1 = encode_offset_flat(x.op1)
+                        x.op2 = encode_offset_flat(x.op2)
+
+            instructions += pyasm2.block(pyasm2.Label('%08x' % addr), instr)
 
         # remove any addresses that are from within the current section
         newlist = addresses[:]
@@ -254,19 +290,30 @@ if __name__ == '__main__':
             program.append('.lcomm __lbl_%08x, 1, 32' % (
                 pe.OPTIONAL_HEADER.ImageBase + section.VirtualAddress + left))
 
+    # now we define all xmm's etc we gathered
+    program.append('.align 4')
+    program += m32s
+    program.append('.align 16')
+    program += m128s
+
     # time to define 'main'
     program.append('.globl _main')
 
+    OEP = pe.OPTIONAL_HEADER.ImageBase + pe.OPTIONAL_HEADER.AddressOfEntryPoint
+
     # append each instruction
     for instr in instructions.instructions:
-        # for OEP we add an additional 'main' label
-        if hasattr(instr, 'address') and instr.address == \
-                pe.OPTIONAL_HEADER.ImageBase + \
-                pe.OPTIONAL_HEADER.AddressOfEntryPoint:
-            program.append('_main:')
         # if this is an label, we want a colon as postfix
         if isinstance(instr, pyasm2.Label):
             program.append(str(instr) + ':')
+
+            # if OEP is at this address, we will also add the `_main' label
+            if str(instr) == '__lbl_%08x' % OEP:
+                program.append('_main:')
+
+                # we have to initialize the stack register, so..
+                # for now we assume esp gpr is stored as first gpr in xmm7
+                program.append('movd xmm7, esp')
         else:
             # TODO: fix this terrible hack as well
             program.append(str(instr).replace('byte', 'byte ptr').replace(
