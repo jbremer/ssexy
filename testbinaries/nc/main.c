@@ -3,7 +3,7 @@
 
 unsigned short hash(const char *s, int len)
 {
-    int ret = 0;
+    unsigned int ret = 0;
     while (len--) ret += *s++ * len;
     return ret;
 }

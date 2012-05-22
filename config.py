@@ -22,14 +22,14 @@ class Api:
 apis = [
     ('SetUnhandledExceptionFilter', '_SetUnhandledExceptionFilter@4'),
     ('MessageBoxA', '_MessageBoxA@16', True),
-    (('ws2_32.dll', 1), '_accept'),
-    (('ws2_32.dll', 2), '_bind'),
-    (('ws2_32.dll', 3), '_closesocket'),
-    (('ws2_32.dll', 9), '_htons'),
-    (('ws2_32.dll', 0x0d), '_listen'),
-    (('ws2_32.dll', 0x10), '_recv'),
-    (('ws2_32.dll', 0x17), '_socket'),
-    (('ws2_32.dll', 0x73), '_WSAStartup'),
+    (('ws2_32.dll', 1), '_accept@12'),
+    (('ws2_32.dll', 2), '_bind@12'),
+    (('ws2_32.dll', 3), '_closesocket@4'),
+    (('ws2_32.dll', 9), '_htons@4'),
+    (('ws2_32.dll', 0x0d), '_listen@8'),
+    (('ws2_32.dll', 0x10), '_recv@16'),
+    (('ws2_32.dll', 0x17), '_socket@12'),
+    (('ws2_32.dll', 0x73), '_WSAStartup@8'),
     ]
 
 # convert each definition to an Api instance.

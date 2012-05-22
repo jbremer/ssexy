@@ -98,6 +98,10 @@ class Translater:
             self.mem_eval(xmm3, src)
             src = xmm3
 
+        if isinstance(src, imm):
+            self.block += movd(xmm3, self.m32(src))
+            src = xmm3
+
         # now read the value.
         if src.size == 128:
            self.block += movups(dst, src)
@@ -133,10 +137,10 @@ class Translater:
             self.block += mov(dst, src)
 
         # from an xmm register to an address
-        elif dst.size == 32 and src.size == 128:
+        elif dst.size in (8, 16, 32) and src.size == 128:
             gpr2 = self.usable_gpr()
             self.block += movd(gpr2, src)
-            self.block += mov(dst, gpr2)
+            self.block += mov(dst, gpr.registers[dst.size][gpr2.index])
 
         else:
             raise Exception('dst: %d, src: %d' % (dst.size, src.size))
@@ -226,6 +230,7 @@ class Translater:
             self.memory_write(dst, src)
 
     def translate(self):
+        #sys.stderr.write('instr: %s\n' % str(self.instr))
         f = getattr(self, 'encode_' + self.instr.mnemonic(), None)
         if not f:
             sys.stderr.write('Cannot encode %s\n' % self.instr.mnemonic())
@@ -247,3 +252,58 @@ class Translater:
     def encode_mov(self):
         self.read_operand(xmm0, self.instr.op2)
         self.write_operand(self.instr.op1, xmm0)
+
+    def encode_call(self):
+        # if a third party api is called, and `resets' is set to True, then
+        # we have to store the xmm6 and xmm7 registers temporarily. As `esp'
+        # is altered by the function call, we store this in `ebp'.
+
+        # prepare `esp', the stack pointer
+        self.read_gpr(esp, esp)
+        self.block += self.instr
+        # store the result stored in `eax'
+        self.write_gpr(eax, eax)
+
+    def encode_retn(self):
+        self.read_gpr(eax, eax)
+        self.read_gpr(esp, esp)
+        self.block += self.instr
+
+    def encode_add(self):
+        self.read_operand(xmm0, self.instr.op1)
+        self.read_operand(xmm1, self.instr.op2)
+        self.block += paddd(xmm0, xmm1)
+        self.write_operand(self.instr.op1, xmm0)
+
+    def encode_pop(self):
+        self.write_operand(self.instr.op1, dword[esp])
+        self.add_gpr(esp, 4)
+
+    def encode_xor(self):
+        self.read_operand(xmm0, self.instr.op1)
+        self.read_operand(xmm1, self.instr.op2)
+        self.block += pxor(xmm0, xmm1)
+        self.write_operand(self.instr.op1, xmm0)
+
+    def encode_sub(self):
+        self.read_operand(xmm0, self.instr.op1)
+        self.read_operand(xmm1, self.instr.op2)
+        self.block += psubd(xmm0, xmm1)
+        self.write_operand(self.instr.op1, xmm0)
+
+    def encode_test(self):
+        # assume two gpr's are used
+        self.read_gpr(eax, self.instr.op1)
+        self.read_gpr(ebx, self.instr.op2)
+        self.block += test(eax, ebx)
+
+    def encode_lea(self):
+        self.mem_eval(xmm0, self.instr.op2)
+        self.write_gpr(self.instr.op1, xmm0)
+
+    def encode_cmp(self):
+        self.read_operand(xmm0, self.instr.op1)
+        self.read_operand(xmm1, self.instr.op2)
+        self.block += movd(eax, xmm0)
+        self.block += movd(ebx, xmm1)
+        self.block += cmp(eax, ebx)

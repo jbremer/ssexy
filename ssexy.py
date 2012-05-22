@@ -224,22 +224,20 @@ if __name__ == '__main__':
                 else:
                     sys.stderr.write('Invalid Relocation!\n')
 
-            if not isinstance(instr.op1, str) or True:
-                #print str(instr)
-                instr = translate.Translater(instr, m128s, m32s).translate()
-                if offset_flat:
-                    encode_offset_flat = lambda x: str(x).replace('0x',
-                        'offset flat:__lbl_') if isinstance(x, (int, long,
-                        pyasm2.imm)) and int(x) == offset_flat or isinstance(x,
-                        pyasm2.mem) and x.disp == offset_flat else x
+            instr = translate.Translater(instr, m128s, m32s).translate()
+            if offset_flat:
+                encode_offset_flat = lambda x: str(x).replace('0x',
+                    'offset flat:__lbl_') if isinstance(x, (int, long,
+                    pyasm2.imm)) and int(x) == offset_flat or isinstance(x,
+                    pyasm2.mem) and x.disp == offset_flat else x
 
-                    if isinstance(instr, pyasm2.block):
-                        for x in instr.instructions:
-                            x.op1 = encode_offset_flat(x.op1)
-                            x.op2 = encode_offset_flat(x.op2)
-                    else:
+                if isinstance(instr, pyasm2.block):
+                    for x in instr.instructions:
                         x.op1 = encode_offset_flat(x.op1)
                         x.op2 = encode_offset_flat(x.op2)
+                else:
+                    x.op1 = encode_offset_flat(x.op1)
+                    x.op2 = encode_offset_flat(x.op2)
 
             instructions += pyasm2.block(pyasm2.Label('%08x' % addr), instr)
 
