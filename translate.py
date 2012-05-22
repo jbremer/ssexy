@@ -194,6 +194,10 @@ class Translater:
 
         if isinstance(src, mem):
             self.mem_eval(xmm3, src)
+            # 32bit support only atm
+            gpr1 = self.usable_gpr()
+            self.block += movd(gpr1, xmm3)
+            self.block += movd(xmm3, dword[gpr1])
             src = xmm3
         elif isinstance(src, gpr):
             # TODO 8/16bit
