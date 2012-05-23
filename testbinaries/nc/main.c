@@ -23,9 +23,9 @@ int Main()
 
     bind(s, (struct sockaddr *) &service, sizeof(service));
 
-	listen(s, 5);
+    listen(s, 5);
 
-	char buf[128] = {0};
+    char buf[128] = {0};
     while (1) {
         SOCKET c = accept(s, NULL, NULL);
         int len = recv(c, buf, sizeof(buf), 0);
