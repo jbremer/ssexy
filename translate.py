@@ -294,6 +294,7 @@ class Translater:
         if isinstance(self.instr, RelativeJump):
             self.block += Label(
                 str('%08x' % (int(str(self.instr.lbl)[6:], 16) + 0xfc000000)))
+            self.add_gpr(esp, 4)
 
         # store the result stored in `eax'
         self.write_gpr(eax, eax)
@@ -302,6 +303,7 @@ class Translater:
         self.read_gpr(eax, eax)
         self.read_gpr(esp, esp)
         self.block += self.instr
+        self.add_gpr(esp, 4)
 
     def encode_add(self):
         self.read_operand(xmm0, self.instr.op1)

@@ -169,7 +169,7 @@ if __name__ == '__main__':
                 reloc = reloc.pop()
                 # there is only one operand, that's easy
                 if not instr.op2:
-                    sys.stderr.write('reloc in op1 %s??\n' % instr.op1)
+                    #sys.stderr.write('reloc in op1 %s??\n' % instr.op1)
                     if isinstance(instr.op1, pyasm2.MemoryAddress):
                         # special occassion, this memory addres is an import
                         if instr.op1.reg1 is None and \
@@ -206,21 +206,21 @@ if __name__ == '__main__':
                     # change the displacement to a label
                     instr.op2 = enable_addr(instr.op2)
                     #instr.op2 = str(instr.op2).replace('0x', '__lbl_00')
-                    sys.stderr.write('reloc in op2 memaddr %s\n' %
-                        str(instr.op2))
+                    #sys.stderr.write('reloc in op2 memaddr %s\n' %
+                    #    str(instr.op2))
                 # the relocation is not inside the second operand, it must be
                 # inside the first operand after all.
                 elif isinstance(instr.op1, pyasm2.MemoryAddress):
                     addresses.append(int(instr.op1.disp))
                     instr.op1 = enable_addr(instr.op1)
                     #instr.op1 = str(instr.op1).replace('0x', '__lbl_00')
-                    sys.stderr.write('reloc in op1 memaddr %s\n' %
-                        str(instr.op1))
+                    #sys.stderr.write('reloc in op1 memaddr %s\n' %
+                    #    str(instr.op1))
                 elif isinstance(instr.op1, pyasm2.Immediate):
                     addresses.append(int(instr.op1))
                     instr.op1 = enable_addr(instr.op1)
                     #instr.op1 = '__lbl_%08x' % int(instr.op1)
-                    sys.stderr.write('reloc in op1 imm %s\n' % instr.op1)
+                    #sys.stderr.write('reloc in op1 imm %s\n' % instr.op1)
                 else:
                     sys.stderr.write('Invalid Relocation!\n')
 
