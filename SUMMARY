@@ -1,25 +1,43 @@
 SSEXY   (C) jbremer, Jurriaan Bremer 2012
 
-    Introduction
+        Introduction
 
-An executable binary consists of code, data and some extra information. Take
-for example `cat', `cat' takes filenames as parameters on the cli, reads them
-entirely and prints everything to stdout. `cat' consists of a single file, this
-file tells the `loader' which data to load on which memory address etc.
-Every binary references data besides the actual code, such as lookup tables,
-strings etc. The code is where my tool, SSEXY, comes in to play.
+Over the past few decades people have been Reverse Engineering binaries in
+order to understand what they do, how they do it, and to find vulnerabilities.
 
-Code, in executable binaries, consist of a bunch of assembly instructions. Over
-the past few decades people have been Reverse Engineering binaries (that is, the
-assembly instructions) to understand how they work and in some cases to find
-vulnerabilities.
-Much research has been done in the field of obfuscation of these executable
-binaries, in order to make it harder for a 3rd party to analyze the binaries,
-today I would like to present a relatively new method. Even though I am pretty
-sure that several people have thought about the obfuscation used in this
-research, nobody has used it on a "large" scale, that is, an entire binary.
+In order to protect these binaries from third party reverse engineers, a lot
+of research has been done regarding the obfuscation of binaries and their
+internals.
 
-    What is SSE
+In this presentation I will present an obfuscation based on x86 instructions
+(these instructions represent everything the binary does, e.g. print a value
+to the command line, calculate the length of a string, etc.)
+
+Note that, by using obfuscation, it becomes harder to analyze a binary, and
+therefore, it tries to keep attackers away from analyzing the binary. Thus
+making it less likely that your favourite private algorithm will be exposed,
+and/or vulnerabilities located.
+
+        Current Approaches
+
+Several techniques are being used in the wild which aid in obfuscation.
+These include the following approaches:
+
+- Virtual Machines;
+    translate x86 into a custom instruction set, this forces a Reverse
+    Engineer to learn the new instruction set, which is time consuming.
+
+- Metamorphic Engines;
+    rewrite an instruction to do the same, but with another
+    representation, i.e. one instruction might be converted to 10 other
+    instructions which result in the exact same output.
+
+- Polymorphic Engines;
+    encrypt the byte code of the instructions (the representation of x86
+    instructions in a way that the CPU understands them) and decrypt them
+    runtime, usually this is done by bruteforcing the key.
+
+        What is SSE
 
 SSE is an acronym for "Streaming SIMD Extensions", SIMD being "Single
 Instruction, Multiple Data". Basically SSE is an extra Instruction Set on top of
@@ -33,15 +51,15 @@ instructions to an equivalent in SSE, therefore obfuscating the execution flow.
 
 Note: Since some of the SSE instruction sets are relatively new (4.1, 4.2 and
 5.0) they might not work on somewhat older CPUs, hence I only use instructions
-from SSE, SSE2 and SSE3, which will hopefully work on most PCs floating around
-the world nowadays.
+from SSE and SSE2, which are supported since the Pentium 3 and 4 respectively,
+so that should run on any modern computer.
 
-    How does SSE work
+        How does SSE work
 
 SSE introduces dozens of new instructions to the existing x86 instruction set,
 fortunately for me there are many semi-overlapping instructions (ie: there is an
 add instruction in both x86 and SSE.) Due to this, almost all x86 instructions
-can be translated into their SSE equivalent without too much work.
+can be translated into their SSE equivalent.
 
 One could see SSE as a complete instruction set on it's own, if you omit a few
 key features (such as branching.) This also means that SSE instructions operate
@@ -56,12 +74,12 @@ from a GPR (General Purpose Register, x86's registers) and store the lowest
 32bits of an XMM register into a GPR. Besides that the entire 128bits can be
 stored to / loaded from an address that you can specify with GPRs.
 
-    What does SSEify do
+        What does SSEXY do
 
-So this SSEify tool translates "regular" x86 assembly into SSE instructions, but
-how does that work? As you might know there are 8 GPRs, these are 32bit
+So this SSEXY tool translates "regular" x86 assembly into SSE instructions, but
+how does that work? So there are 8 GPRs, these are 32bit
 registers that store stuff like intermediate values, stack pointers, return
-values etc etc. But that's nice, 8 registers * 32 bits = 256 bits, this means
+values etc. But that's nice, 8 registers * 32 bits = 256 bits, this means
 we can store all GPRs in just two XMM registers. So basically we emulate the
 "normal" x86 instructions using SSE instructions.
 
@@ -76,39 +94,66 @@ relatively easy to implement in SSE. For example, a lot of x86 instructions
 be used to jump somewhere else in the code, this is a bit harder to emulate in
 SSE, but still doable.
 
-    Testing
+        Overlap Existing Techniques
 
-Unfortunately I did not have enough time, yet, to finish the initial version
-completely for a few reasons (ie: since I manually edit PE files, that is
-.exe's, I also have to implement an entire library to work with these files, as
-I have not seen an existing library capable of doing that.)
+It may or may not have occurred to the reader that SSEXY is basically a new
+way of obfuscation, introducing a combination of techniques from Virtual
+Machines and Metamorphic Engines. This makes SSEXY very powerful,
+obfuscation-wise.
 
-Anyhow, I suspect a few things:
-1) Static Analyzers will break: they, most likely, lack support for SSE
-    instructions
-2) Reverse Engineers will have headaches: "new" instruction set, there are no
-    tools to automate processing it *yet* (see point 1)
-3) Anti-Virus engines will fail: They can't do static analysis, although I
-    assume/hope that runtime analysis will still work
+        Tests
 
-    Ideas
+For my first presentation, at the Hack in the Box conference, I have developed
+an initial version of SSEXY. This was merely to demonstrate the Proof of
+Concept, and it's very, very limited. However, the results were already fairly
+nice, e.g. IDA Pro simply fails to recognize all instructions, not to mention
+graph view, or displaying basic blocks.
 
-There are many features one could come up with after finishing the initial
-version of this tool.
-- Optimalizing instruction implementations (reducing amount of SSE instructions
-    needed per x86 instruction)
+The existing presentation and sample binary can be found here;
+http://jbremer.org/ssexy.zip
+
+However, if accepted, I will develop the tool further. The idea is that it
+should be able to handle a normal binary, i.e. any binary that was just
+compiled and doesn't contain any weird stuff (such as embedded shellcode.)
+
+        Cool stuff
+
+A few observations, which make this tool (and research) interesting, in my
+opinion:
+
+- Static Analyzers break: they, most likely, lack support for SSE instructions
+
+- Reverse Engineers will have headaches: "new" instruction set, there are no
+    tools to automate processing it *yet* (see point 1), this extends the time
+    it takes to analyze such binary
+
+- Anti-Virus engines will fail: static analysis will most likely fail.
+
+- (Potentially) defeating ROP exploits; I will talk about exploitability of a
+    binary using the well-known ROP gadgets, if I'm not mistaken, ROP exploits
+    will be a lot harder, but I'm not 100% sure about that yet.
+
+        Improvements
+
+Several improvements, on top of the "basic" features, include:
+
+- Optimalizing instruction implementations; reducing amount of SSE
+    instructions needed per x86 instruction (i.e. removing dead code)
+
 - Shuffling the GPRs stored in XMM registers to obfuscate a bit
+
 - Simple "encryption" of the GPRs stored in XMM registers (or even using
     different encryption keys depending on the function we are currently in,
     function as in a function in the C programming language)
+
 - Combining several x86 instructions into a series of SSE instructions
+
 - ... Whatever floats your boat ...
 
     Conclusion
 
 I have proposed a relatively new way to obfuscate existing binaries and,
 hopefully, a new way to fool Reverse Engineers, static analyzers and Anti Virus
-engines. Overall it's an interesting approach and it will show the Reverse
-Engineering community that "the battle" will never stop, hehe.
+engines.
 
 Jurriaan Bremer, jbremer, jurriaanbremer@gmail.com
