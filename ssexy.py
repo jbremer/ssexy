@@ -3,7 +3,7 @@ ssexy v0.1    (C) 2012 Jurriaan Bremer
 
 """
 
-import sys, pefile, distorm3
+import sys, distorm3
 
 # config stores some configuration, as well as API definitions (ie, win32
 # api's are like _MessageBox@4..)
@@ -83,14 +83,11 @@ def distorm3_to_pyasm2(instr):
     ret.length = instr.size
     return ret
 
-if __name__ == '__main__':
-    sys.stderr.write('ssexy v0.1    (C) 2012 Jurriaan Bremer\n')
-    if len(sys.argv) != 2:
-        print 'Usage: %s <binary>' % sys.argv[0]
-        exit(0)
+def ssexy_win32(fname):
+    import pefile
 
     # load the pe file
-    pe = pefile.PE(sys.argv[1])
+    pe = pefile.PE(fname)
 
     # make a addr: value dictionary for all imports
     imports = dict((x.address, x.name or (e.dll.lower(), x.ordinal))
@@ -321,3 +318,18 @@ if __name__ == '__main__':
                 '__lbl_00400000', '0x400000').replace('oword ptr', ''))
 
     print '\n'.join(program)
+
+def ssexy_linux(fname):
+    pass
+
+if __name__ == '__main__':
+    sys.stderr.write('ssexy v0.1    (C) 2012 Jurriaan Bremer\n')
+    if len(sys.argv) != 2:
+        print 'Usage: %s <binary>' % sys.argv[0]
+        exit(0)
+
+    # simple.. but suffices for now ;x
+    if sys.argv[1].find('.exe') > 0:
+        ssexy_win32(sys.argv[1])
+    else:
+        ssexy_linux(sys.argv[1])
