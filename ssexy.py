@@ -320,7 +320,273 @@ def ssexy_win32(fname):
     print '\n'.join(program)
 
 def ssexy_linux(fname):
-    pass
+    import elf32
+    from construct import Struct, ULInt32, ULInt16, ULInt8, Array, CString
+    from construct import OptionalGreedyRange
+
+    # assume low-endian binary
+    elf32_rel = Struct('elf32_rel', ULInt32('r_offset'), ULInt32('r_info'))
+    ELF32_R_SYM = lambda x: x.r_info >> 8
+    ELF32_R_TYPE = lambda x: x.r_info & 0xff
+
+    elf32_sym = Struct('elf32_sym', ULInt32('st_name'), ULInt32('st_value'),
+        ULInt32('st_size'), ULInt8('st_info'), ULInt8('st_other'),
+        ULInt16('st_shndx'))
+
+    elf = elf32.elf32_file.parse_stream(file(fname, 'rb'))
+
+    # retrieve section by name
+    elf32_section = lambda elf, name: [x for x in elf.sections
+        if x.name == name][0]
+
+    # for now we assume that all code is in the .text section
+    code_section = [x for x in elf.sections if x.name == '.text']
+    if not len(code_section):
+        raise Exception('your binary doesn\'t have a .text section..')
+
+    relocs = [x.data.value for x in elf.sections if x.name == '.rel.dyn']
+    if not len(relocs):
+        raise Exception('no relocs available, compile with -pie')
+
+    # read all relocations
+    relocs = Array(len(relocs[0]) / elf32_rel.sizeof(),
+        elf32_rel).parse(relocs[0])
+    # now get the offsets of the relocations
+    relocs = set([x.r_offset for x in relocs])
+
+    imports = {}
+
+    # a list of addresses that were used.
+    addresses = []
+
+    # a list of all m128 values we use
+    m128s = []
+
+    # a list of all dword values we use
+    m32s = []
+
+    instructions = pyasm2.block()
+
+    # get string at offset
+    dynstr = lambda x: CString(None).parse(
+        elf32_section(elf, '.dynstr').data.value[x:])
+
+    # read the symbol table
+    imports = OptionalGreedyRange(elf32_sym).parse(elf32_section(elf,
+        '.dynsym').data.value)
+
+    # resolve relocations
+    section = elf32_section(elf, '.rel.dyn')
+    relocates = {}
+    for x in xrange(0, section.size, elf32_rel.sizeof()):
+        x = elf32_rel.parse(section.data.value[x:x+elf32_rel.sizeof()])
+        if ELF32_R_TYPE(x) == 2:
+            relocates[x.r_offset] = dynstr(imports[ELF32_R_SYM(x)].st_name)
+
+    # walk each section, find those that are executable and disassemble those
+    section = elf32_section(elf, '.text')
+    g = distorm3.DecomposeGenerator(section.addr, section.data.value,
+            distorm3.Decode32Bits)
+    for instr in g:
+        # useless instruction?
+        if str(instr) in ('NOP', 'ADD [EAX], AL', 'LEA ESI, [ESI]',
+                    'INT 3') or str(instr)[:2] == 'DB':
+            continue
+
+        # a jump to one of the imports?
+        #if instr.mnemonic == 'JMP' and instr.operands[0].type == \
+        #        distorm3.OPERAND_ABSOLUTE_ADDRESS and \
+        #        instr.operands[0].disp in imports:
+        #    iat_label[instr.address] = imports[instr.operands[0].disp]
+        #    continue
+
+        # quite hackery, but when the jumps with thunk address have been
+        # processed, we can be fairly sure that there will be no (legit)
+        # code anymore.
+        #if len(iat_label):
+        #    break
+
+        #print str(instr)
+
+        #print str(instr)
+
+        # convert the instruction from distorm3 format to pyasm2 format.
+        instr = distorm3_to_pyasm2(instr)
+
+        # we create the block already here, otherwise our `labelnr' is
+        # not defined.
+        #block = pyasm2.block(pyasm2.Label('%08x' % instr.address), instr)
+        offset_flat = None
+        addr = instr.address
+
+        # now we check if this instruction has a relocation inside it
+        # not a very efficient way, but oke.
+        reloc = instr.length > 4 and relocs.intersection(range(
+            instr.address, instr.address + instr.length - 3))
+        if reloc:
+            # make an immediate with `addr' set to True
+            enable_addr = lambda x: Immediate(int(x), addr=True)
+
+            # TODO support for two relocations in one instruction
+            # (displacement *and* immediate)
+            reloc = reloc.pop()
+            if not hasattr(instr, 'op1'):
+                instr.op1, instr.op2 = None, None
+            # there is only one operand, that's easy
+            if not instr.op2:
+                #sys.stderr.write('reloc in op1 %s??\n' % instr.op1)
+                if isinstance(instr.op1, pyasm2.MemoryAddress):
+                    # special occassion, this memory addres is an import
+                    if instr.op1.reg1 is None and \
+                            instr.op1.reg2 is None and \
+                            int(instr.op1.disp) in imports:
+                        instr.op1 = imports[int(instr.op1.disp)]
+                    else:
+                        addresses.append(int(instr.op1.disp))
+                        # change the displacement to a label
+                        #instr.op1 = str(instr.op1).replace('0x',
+                        #    '__lbl_00')
+                        instr.op1 = enable_addr(instr.op1)
+                elif isinstance(instr.op1, pyasm2.Immediate):
+                    addresses.append(int(instr.op1))
+                    offset_flat = int(instr.op1)
+                    #instr.op1 = str(instr.op1).replace('0x',
+                    #    'offset flat:__lbl_00')
+            # if the second operand is an immediate and the relocation is
+            # in the last four bytes of the instruction, then this
+            # immediate is the reloc. Otherwise, if the second operand is
+            # a memory address, then it's the displacement.
+            elif isinstance(instr.op2, pyasm2.Immediate) and reloc == \
+                    instr.address + instr.length - 4:
+                # keep this address
+                addresses.append(int(instr.op2))
+                # make a label from this address
+                # TODO: fix this horrible hack
+                offset_flat = int(instr.op2)
+                #instr.op2 = pyasm2.Label('offset flat:__lbl_%08x' %
+                #    int(instr.op2), prepend=False)
+            elif isinstance(instr.op2, pyasm2.MemoryAddress) and \
+                    reloc == instr.address + instr.length - 4:
+                addresses.append(int(instr.op2.disp))
+                # change the displacement to a label
+                instr.op2 = enable_addr(instr.op2)
+                #instr.op2 = str(instr.op2).replace('0x', '__lbl_00')
+                #sys.stderr.write('reloc in op2 memaddr %s\n' %
+                #    str(instr.op2))
+            # the relocation is not inside the second operand, it must be
+            # inside the first operand after all.
+            elif isinstance(instr.op1, pyasm2.MemoryAddress):
+                addresses.append(int(instr.op1.disp))
+                instr.op1 = enable_addr(instr.op1)
+                #instr.op1 = str(instr.op1).replace('0x', '__lbl_00')
+                #sys.stderr.write('reloc in op1 memaddr %s\n' %
+                #    str(instr.op1))
+            elif isinstance(instr.op1, pyasm2.Immediate):
+                addresses.append(int(instr.op1))
+                instr.op1 = enable_addr(instr.op1)
+                #instr.op1 = '__lbl_%08x' % int(instr.op1)
+                #sys.stderr.write('reloc in op1 imm %s\n' % instr.op1)
+            else:
+                sys.stderr.write('Invalid Relocation!\n')
+
+        #print instr
+        instr = translate.Translater(instr, m128s, m32s).translate()
+        if offset_flat:
+            encode_offset_flat = lambda x: str(x).replace('0x',
+                'offset flat:__lbl_') if isinstance(x, (int, long,
+                pyasm2.imm)) and int(x) == offset_flat or isinstance(x,
+                pyasm2.mem) and x.disp == offset_flat else x
+
+            if isinstance(instr, pyasm2.block):
+                for x in instr.instructions:
+                    x.op1 = encode_offset_flat(x.op1)
+                    x.op2 = encode_offset_flat(x.op2)
+            else:
+                x.op1 = encode_offset_flat(x.op1)
+                x.op2 = encode_offset_flat(x.op2)
+
+        instructions += pyasm2.block(pyasm2.Label('%08x' % addr), instr)
+
+    # remove any addresses that are from within the current section
+    newlist = addresses[:]
+    for i in xrange(len(addresses)):
+        if addresses[i] >= code_section[0].addr and addresses[i] < \
+                code_section[0].addr + code_section[0].size:
+            newlist[i] = None
+    addresses = filter(lambda x: x is not None, newlist)
+
+    # walk over each instruction, if it has references, we update them
+    for instr in instructions.instructions:
+        # we can skip labels
+        if isinstance(instr, pyasm2.Label):
+            continue
+
+        # check for references to imports
+        if isinstance(instr, pyasm2.RelativeJump):
+            # not very good, but for now (instead of checking relocs) we check
+            # if the index is in the iat tabel..
+            #if int(instr.lbl.index, 16) in iat_label:
+                #instr.lbl.index = iat_label[int(instr.lbl.index, 16)]
+                #instr.lbl.prepend = False
+            continue
+
+    program = ['.file "ssexy.c"', '.intel_syntax noprefix']
+
+    # we walk over each section, if a reference to this section has been found
+    # then we will dump the entire section as bytecode.. with matching labels
+    for section in elf.sections:
+        base = section.addr
+        data = section.data.value
+        addr = set(range(base, base + section.size)).intersection(addresses)
+        if addr:
+            # create a header for this section
+            program.append('.section %s' % section.name)
+
+            # for now we do it the easy way.. one line and label per byte, lol
+            for addr in xrange(section.size):
+                program.append('__lbl_%08x: .byte 0x%02x' % (base + addr,
+                    ord(data[addr])))
+
+            # empty line..
+            program.append('')
+
+    # now we define all xmm's etc we gathered
+    program.append('.align 4')
+    program += m32s
+    program.append('.align 16')
+    program += m128s
+
+    # time to define 'main'
+    program.append('.globl main')
+
+    OEP = elf.entry
+
+    # fucked up shit
+    relocates = dict(('jmp __lbl_%08x' % k, 'jmp ' + v)
+        for k, v in relocates.items())
+
+    # append each instruction
+    for instr in instructions.instructions:
+        # if this is an label, we want a colon as postfix
+        if isinstance(instr, pyasm2.Label):
+            program.append(str(instr) + ':')
+
+            # if OEP is at this address, we will also add the `_main' label
+            if str(instr) == '__lbl_%08x' % OEP:
+                program.append('main:')
+
+                # we have to initialize the stack register, so..
+                # for now we assume esp gpr is stored as first gpr in xmm7
+                program.append('movd xmm7, esp')
+        else:
+            # TODO: fix this terrible hack as well
+            program.append(str(instr).replace('byte', 'byte ptr').replace(
+                'word', 'word ptr').replace('retn', 'ret').replace(
+                '__lbl_00400000', '0x400000').replace('oword ptr', ''))
+            if program[-1] in relocates:
+                program[-1] = relocates[program[-1]]
+
+    print '\n'.join(program)
 
 if __name__ == '__main__':
     sys.stderr.write('ssexy v0.1    (C) 2012 Jurriaan Bremer\n')
