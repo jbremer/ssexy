@@ -557,7 +557,9 @@ def ssexy_linux(fname):
     program += m128s
 
     # time to define 'main'
-    program.append('.globl main')
+    program.append('.text')
+    program.append('.globl Main')
+    program.append('.type Main, @function')
 
     OEP = elf.entry
 
@@ -573,7 +575,7 @@ def ssexy_linux(fname):
 
             # if OEP is at this address, we will also add the `_main' label
             if str(instr) == '__lbl_%08x' % OEP:
-                program.append('main:')
+                program.append('Main:')
 
                 # we have to initialize the stack register, so..
                 # for now we assume esp gpr is stored as first gpr in xmm7
