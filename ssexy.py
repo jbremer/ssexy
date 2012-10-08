@@ -10,8 +10,7 @@ import sys, distorm3
 import config
 
 # oboy this is ugly
-sys.path.append('pyasm2')
-import pyasm2
+import pyasm2.x86 as pyasm2
 
 import translate
 

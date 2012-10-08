@@ -13,10 +13,8 @@ xmm3 = temporary (used in `core' apis)
 """
 import sys
 
-sys.path.append('pyasm2')
-
 # one of the main reasons translation is done in a seperate module
-from pyasm2 import *
+from pyasm2.x86 import *
 
 def translate(instr):
     """TranslateCeption?"""
