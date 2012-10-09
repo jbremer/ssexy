@@ -299,9 +299,9 @@ class Translater:
 
     def encode_retn(self):
         self.read_gpr(eax, eax)
-        self.read_gpr(esp, esp)
-        self.block += self.instr
         self.add_gpr(esp, 4)
+        self.read_gpr(esp, esp)
+        self.block += jmp(dword[esp-4])
 
     def encode_add(self):
         self.read_operand(xmm0, self.instr.op1)
@@ -372,3 +372,8 @@ class Translater:
         self.read_operand(xmm1, self.instr.op2)
         self.block += pand(xmm0, xmm1)
         self.write_gpr(self.instr.op1, xmm0)
+
+    def encode_leave(self):
+        x = self.instr
+        self.t(mov(esp, ebp), pop(ebp))
+        self.instr = x
