@@ -318,7 +318,7 @@ def ssexy_win32(fname):
 
     print '\n'.join(program)
 
-def ssexy_linux(fname):
+def ssexy_linux(fname, *eips):
     import elf32
     from construct import Struct, ULInt32, ULInt16, ULInt8, Array, CString
     from construct import OptionalGreedyRange
@@ -327,6 +327,7 @@ def ssexy_linux(fname):
     elf32_rel = Struct('elf32_rel', ULInt32('r_offset'), ULInt32('r_info'))
     ELF32_R_SYM = lambda x: x.r_info >> 8
     ELF32_R_TYPE = lambda x: x.r_info & 0xff
+    R_386_PC32 = 2
 
     elf32_sym = Struct('elf32_sym', ULInt32('st_name'), ULInt32('st_value'),
         ULInt32('st_size'), ULInt8('st_info'), ULInt8('st_other'),
@@ -379,7 +380,8 @@ def ssexy_linux(fname):
     relocates = {}
     for x in xrange(0, section.size, elf32_rel.sizeof()):
         x = elf32_rel.parse(section.data.value[x:x+elf32_rel.sizeof()])
-        if ELF32_R_TYPE(x) == 2:
+        # relocation to fixup addresses to imports
+        if ELF32_R_TYPE(x) == R_386_PC32:
             relocates[x.r_offset] = dynstr(imports[ELF32_R_SYM(x)].st_name)
 
     # walk each section, find those that are executable and disassemble those
@@ -489,6 +491,7 @@ def ssexy_linux(fname):
                 sys.stderr.write('Invalid Relocation!\n')
 
         #print instr
+        m32len = len(m32s)
         instr = translate.Translater(instr, m128s, m32s).translate()
         if offset_flat:
             encode_offset_flat = lambda x: str(x).replace('0x',
@@ -503,6 +506,11 @@ def ssexy_linux(fname):
             else:
                 x.op1 = encode_offset_flat(x.op1)
                 x.op2 = encode_offset_flat(x.op2)
+
+            # update stuff
+            m32s = m32s[:m32len] + [x.replace('0x%08x' % offset_flat,
+                'offset flat:__lbl_%08x' % offset_flat)
+                for x in m32s[m32len:]]
 
         instructions += pyasm2.block(pyasm2.Label('%08x' % addr), instr)
 
@@ -566,6 +574,8 @@ def ssexy_linux(fname):
     relocates = dict(('jmp __lbl_%08x' % k, 'jmp ' + v)
         for k, v in relocates.items())
 
+    eips = ['__lbl_%08x' % x for x in eips]
+
     # append each instruction
     for instr in instructions.instructions:
         # if this is an label, we want a colon as postfix
@@ -579,6 +589,12 @@ def ssexy_linux(fname):
                 # we have to initialize the stack register, so..
                 # for now we assume esp gpr is stored as first gpr in xmm7
                 program.append('movd xmm7, esp')
+
+            # if the label is in the list of addresses to which we have to add
+            # an "movd xmm7, esp" instruction, then add it (e.g. callback
+            # function for pthread_create)
+            if str(instr) in eips:
+                program.append('movd xmm7, esp')
         else:
             # TODO: fix this terrible hack as well
             program.append(str(instr).replace('byte', 'byte ptr').replace(
@@ -591,7 +607,7 @@ def ssexy_linux(fname):
 
 if __name__ == '__main__':
     sys.stderr.write('ssexy v0.1    (C) 2012 Jurriaan Bremer\n')
-    if len(sys.argv) != 2:
+    if len(sys.argv) < 2:
         print 'Usage: %s <binary>' % sys.argv[0]
         exit(0)
 
@@ -599,4 +615,4 @@ if __name__ == '__main__':
     if sys.argv[1].find('.exe') > 0:
         ssexy_win32(sys.argv[1])
     else:
-        ssexy_linux(sys.argv[1])
+        ssexy_linux(sys.argv[1], *map(lambda x: int(x, 16), sys.argv[2:]))
